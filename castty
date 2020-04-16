@@ -67,6 +67,8 @@ castty_record() {
     FPS=15
     FREQ=48000
 
+    RECORDMYDESKTOP_ARGS=""
+
     # Get Command Line Arguments
     while [ "$1" != "" ]; do
         case "$1" in
@@ -90,8 +92,12 @@ castty_record() {
                 shift
                 shift
                 ;;
+            -nc)
+                RECORDMYDESKTOP_ARGS="$RECORDMYDESKTOP_ARGS --no-cursor"
+                shift
+                ;;
             *)
-                echo -- " ERROR: invalid argument $1"
+                echo " ERROR: invalid argument \`$1'"
                 exit 1
                 ;;
         esac
@@ -120,7 +126,7 @@ castty_record() {
     if [ "$COMBINE" = yes ]; then
         vlc -I  dummy --no-loop --play-and-exit "$OUTPUT_AUDIO" &
         OUTPUT_VIDEO="$OUTPUT_BASE-tmp.ogv"
-        recordmydesktop \
+        recordmydesktop $RECORDMYDESKTOP_ARGS \
             --no-sound \
             --fps "$FPS" \
             --v_quality 63 \
@@ -139,7 +145,7 @@ castty_record() {
 
 
     # Audio and Video
-    exec recordmydesktop \
+    exec recordmydesktop $RECORDMYDESKTOP_ARGS \
          --channels 1 \
          --device "$DEVICE" \
          --freq "$FREQ" \
