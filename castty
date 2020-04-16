@@ -1,0 +1,184 @@
+#!/bin/sh
+
+CASTTY_BASEDIR=$(dirname "$0")
+CASTTY_MK="$CASTTY_BASEDIR/castty.mk"
+
+
+CASTTY_RECDIR="."
+CASTTY_SRCDIR="src"
+
+CASTTY_NJOBS="$((`nproc`))"
+
+# Assume we're doing compression and noise-gating in hardware, so just
+# do a simple filter and loudness normalization
+CASTTY_FILTER="highpass=f=80"
+CASTTY_FILTER="$CASTTY_FILTER,lowpass=f=12000"
+CASTTY_FILTER="$CASTTY_FILTER,loudnorm"
+
+
+# Transcode source files
+castty_transsrc() {
+    CASTTY_FILES=""
+    for i in $CASTTY_RECDIR/slide-*.ogv; do
+        CASTTY_FILES="$CASTTY_FILES $CASTTY_SRCDIR/$(basename -s .ogv $i).mkv"
+    done
+
+    make -j $CASTTY_NJOBS -f $CASTTY_MK $CASTTY_FILES
+}
+
+# Postprocess
+castty_post() {
+
+    # All source files
+    for i in src/slide-*.mkv; do echo "file '$i'"; done  > inputs.txt
+
+    mkdir -p out
+
+    # Cat Files and filter audio
+    ffmpeg -f concat -i inputs.txt \
+           -codec:v copy \
+           -codec:a flac \
+           -filter:a "$CASTTY_FILTER" \
+           -ac 1 \
+           out/slides-hi.mkv
+
+    # Transcode
+    ffmpeg -i out/slides-hi.mkv \
+           -codec:v libx264 -crf 23 \
+           -codec:a aac -b:a 128k \
+           -filter:a aresample=48000 \
+           -max_muxing_queue_size 4096 \
+           out/slides-encoded.mp4
+}
+
+# Record
+castty_record() {
+
+    ## ARGUMENT VARIABLES
+    OUTPUT=""
+    WINDOW=""
+    AUDIO=no
+    COMBINE=no
+
+
+    ## PARAMETERS
+    # don't really need to change these
+    DEVICE=pulse
+    FPS=15
+    FREQ=48000
+
+    # Get Command Line Arguments
+    while [ "$1" != "" ]; do
+        case "$1" in
+            -a) # Record only audio
+                AUDIO=yes
+                shift
+                ;;
+            -c) # Combine prior audio with captured screen
+                COMBINE=yes
+                shift
+                ;;
+            -w) # Window ID
+                WINDOW="$2"
+                shift
+                shift
+                ;;
+            -o) # Output file
+                OUTPUT="$2"
+                OUTPUT_BASE=`echo "$OUTPUT" | sed -e 's/\\.[^\\.]*$//'`
+                OUTPUT_AUDIO="$OUTPUT_BASE.flac"
+                shift
+                shift
+                ;;
+            *)
+                echo -- " ERROR: invalid argument $1"
+                exit 1
+                ;;
+        esac
+    done
+
+    # echo "WINDOW:       $WINDOW"
+    # echo "OUTPUT:       $OUTPUT"
+    # echo "OUTPUT_BASE : $OUTPUT_BASE"
+    # echo "OUTPUT_AUDIO: $OUTPUT_AUDIO"
+    # echo "AUDIO:        $AUDIO"
+    # echo "COMBINE:      $COMBINE"
+
+
+    if [ "$AUDIO" = yes ]; then
+        echo Recording audio...
+
+        exec ffmpeg \
+             -f pulse -i "default" \
+             -ac 1 \
+             -acodec flac \
+             "$OUTPUT_AUDIO"
+        exit 1
+    fi
+
+
+    if [ "$COMBINE" = yes ]; then
+        vlc -I  dummy --no-loop --play-and-exit "$OUTPUT_AUDIO" &
+        OUTPUT_VIDEO="$OUTPUT_BASE-tmp.ogv"
+        recordmydesktop \
+            --no-sound \
+            --fps "$FPS" \
+            --v_quality 63 \
+            --workdir /tmp \
+            --stop-shortcut "Mod1+s" \
+            --windowid "$WINDOW" -o "$OUTPUT_VIDEO"
+
+        ffmpeg -i "$OUTPUT_VIDEO" -i "$OUTPUT_AUDIO" \
+               -vcodec copy \
+               -acodec libvorbis -q:a 10  \
+               "$OUTPUT" \
+            && rm "$OUTPUT_VIDEO" \
+            && exit 0
+    fi
+
+
+
+    # Audio and Video
+    exec recordmydesktop \
+         --channels 1 \
+         --device "$DEVICE" \
+         --freq "$FREQ" \
+         --s_quality 10 \
+         --fps "$FPS" \
+         --v_quality 63 \
+         --workdir /tmp \
+         --stop-shortcut "Mod1+s" \
+         --windowid "$WINDOW" -o "$OUTPUT"
+
+
+
+    # ffmpeg \
+        #     -f pulse -i "default" \
+        #     -acodec flac \
+        #     -f x11grab -video_size 1920x1080 -framerate 15  -i :0.0+3840,0 \
+        #     -vcodec libx264 -qp 0 -preset ultrafast \
+        #     test.mp4
+
+}
+
+
+
+
+case "$1" in
+    transsrc)
+        castty_transsrc
+    ;;
+    post)
+        castty_post
+    ;;
+    rec*|record)
+        shift
+        castty_record "$@"
+    ;;
+    *)
+        echo "ERROR: invalid command \`$1'"
+        exit 1
+        ;;
+esac
+
+exit 1
