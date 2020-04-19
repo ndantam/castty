@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh -e
 
 CASTTY_BASEDIR=$(dirname "$0")
 CASTTY_MK="$CASTTY_BASEDIR/castty.mk"
@@ -41,22 +41,22 @@ castty_post() {
            -ac 1 \
            out/hi-quality.mkv
 
-    # Transcode
-
-    ffmpeg -i out/hi-quality.mkv \
-           -codec:v libx264 -crf 23 \
-           -codec:a aac -b:a 128k \
+    # Encode audio
+    ffmpeg -i out/hi-quality.mkv  -vn \
            -filter:a aresample=48000 \
+           -codec:a pcm_s16le \
+           -f wav - \
+        | \
+        fdkaac --profile 2 --bitrate-mode 4  - -o out/compressed.m4a
+
+    # Transcode video and merge audio
+    ffmpeg -i out/hi-quality.mkv \
+           -i out/compressed.m4a \
+           -map 0:v:0 -map 1:a:0 \
+           -codec:v libx264 -crf 23 \
+           -codec:a copy \
            -max_muxing_queue_size 4096 \
            out/compressed.mp4
-
-    # ffmpeg -i out/hi-quality.mkv \
-    #        -codec:v libx265 -crf 28 \
-    #        -codec:a aac -b:a 128k \
-    #        -filter:a aresample=48000 \
-    #        -max_muxing_queue_size 4096 \
-    #        out/compressed.mp4
-
 }
 
 # Record
