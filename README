@@ -1,8 +1,10 @@
 CasTTY is a shell script to support lecture recording and
 postprocessing.
 
-Examples
-========
+
+
+WORKFLOW AND EXAMPLES
+=====================
 
 Recording
 ---------
@@ -27,3 +29,21 @@ transcoding to reduce file size for distribution.  The following
 command will postprocess the recordings:
 
     castty post
+
+
+
+FILES
+=====
+
+Output Files
+------------
+
+* `./out/hi-quality.mkv`: high-quality video file
+* `./out/compressed.mp4`: compressed video file
+
+Directories
+-----------
+* `./rec/`: Directory containing initial recordings
+* `./src/`: Directory containing (lossless) transcoded recordings
+* `./out/`: Directory containing output files
+* `./tmp/`: Directory for Temporary working files

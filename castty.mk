@@ -1,4 +1,4 @@
-src/%.mkv: %.ogv
+src/%.mkv: rec/%.ogv
 	mkdir -p src
 	ffmpeg -i "$<" \
 	 -codec:v libx264 -crf 0 \

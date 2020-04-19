@@ -4,7 +4,7 @@ CASTTY_BASEDIR=$(dirname "$0")
 CASTTY_MK="$CASTTY_BASEDIR/castty.mk"
 
 
-CASTTY_RECDIR="."
+CASTTY_RECDIR="rec"
 CASTTY_SRCDIR="src"
 
 CASTTY_NJOBS="$((`nproc`))"
@@ -28,27 +28,35 @@ castty_transsrc() {
 
 # Postprocess
 castty_post() {
-
     # All source files
-    for i in src/slide-*.mkv; do echo "file '$i'"; done  > inputs.txt
+    for i in "$CASTTY_SRCDIR"/slide-*.mkv; do echo "file '$i'"; done  > inputs.txt
 
     mkdir -p out
 
-    # Cat Files and filter audio
+    # Concatenate files and filter audio
     ffmpeg -f concat -i inputs.txt \
            -codec:v copy \
            -codec:a flac \
            -filter:a "$CASTTY_FILTER" \
            -ac 1 \
-           out/slides-hi.mkv
+           out/hi-quality.mkv
 
     # Transcode
-    ffmpeg -i out/slides-hi.mkv \
+
+    ffmpeg -i out/hi-quality.mkv \
            -codec:v libx264 -crf 23 \
            -codec:a aac -b:a 128k \
            -filter:a aresample=48000 \
            -max_muxing_queue_size 4096 \
-           out/slides-encoded.mp4
+           out/compressed.mp4
+
+    # ffmpeg -i out/hi-quality.mkv \
+    #        -codec:v libx265 -crf 28 \
+    #        -codec:a aac -b:a 128k \
+    #        -filter:a aresample=48000 \
+    #        -max_muxing_queue_size 4096 \
+    #        out/compressed.mp4
+
 }
 
 # Record
@@ -86,9 +94,9 @@ castty_record() {
                 shift
                 ;;
             -o) # Output file
-                OUTPUT="$2"
-                OUTPUT_BASE=`echo "$OUTPUT" | sed -e 's/\\.[^\\.]*$//'`
-                OUTPUT_AUDIO="$OUTPUT_BASE.flac"
+                OUTPUT_BASE=`echo "$2" | sed -e 's/\\.[^\\.]*$//'`
+                OUTPUT="$CASTTY_RECDIR/$OUTPUT_BASE.ogv"
+                OUTPUT_AUDIO="$CASTTY_RECDIR/$OUTPUT_BASE.flac"
                 shift
                 shift
                 ;;
@@ -104,11 +112,12 @@ castty_record() {
     done
 
     # echo "WINDOW:       $WINDOW"
-    # echo "OUTPUT:       $OUTPUT"
     # echo "OUTPUT_BASE : $OUTPUT_BASE"
+    # echo "OUTPUT:       $OUTPUT"
     # echo "OUTPUT_AUDIO: $OUTPUT_AUDIO"
     # echo "AUDIO:        $AUDIO"
     # echo "COMBINE:      $COMBINE"
+    # exit
 
 
     if [ "$AUDIO" = yes ]; then
@@ -141,7 +150,6 @@ castty_record() {
             && rm "$OUTPUT_VIDEO" \
             && exit 0
     fi
-
 
 
     # Audio and Video
