@@ -2,24 +2,23 @@ CasTTY is a shell script to support lecture recording and
 postprocessing.
 
 
-
 WORKFLOW AND EXAMPLES
 =====================
 
-Recording
----------
+Record
+------
 
-TODO
+Record screen and audio quickly with minimal / fast compression.
 
 
-Transcode Recordings
---------------------
+Ingest
+------
 
-Screen recording programs may not use the most efficient video codes.
-The following command will transcode the recordings to save space on
-the source files:
+The initial recordings do not use the most efficient video codes.  The
+following command will transcode the recordings to save space on the
+source files:
 
-    castty transsrc
+    castty ingest
 
 Postprocess
 -----------
@@ -31,9 +30,14 @@ command will postprocess the recordings:
     castty post
 
 
-
 FILES
 =====
+
+Configuration
+-------------
+
+* `$HOME/.config/casttyrc`: configuration file to set environment
+  variables
 
 Output Files
 ------------

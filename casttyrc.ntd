@@ -1,0 +1,19 @@
+###########
+## AUDIO ##
+###########
+# CASTTY_AUDIO_DEVICE=pulsex
+# CASTTY_AUDIO_INPUT=default
+
+
+###########
+## VIDEO ##
+###########
+# CASTTY_VIDEO_DEVICE=x11grab
+# CASTTY_VIDEO_SIZE=1920x1080
+# CASTTY_VIDEO_FPS=15
+CASTTY_VIDEO_INPUT=:0.0+3840,0
+
+
+# Local Variables:
+# mode: shell-script
+# End:
