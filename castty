@@ -8,7 +8,9 @@ CASTTY_BASEDIR=$(dirname "$0")
 CASTTY_MK="$CASTTY_BASEDIR/castty.mk"
 CASTTY_RECDIR="rec"
 CASTTY_SRCDIR="src"
+CASTTY_CLIPDIR="clip"
 CASTTY_NJOBS="$((`nproc`))"
+CASTTY_FIFO="$CASTTY_RECDIR/fifo"
 
 
 ###################
@@ -63,16 +65,48 @@ castty_ingest() {
 
     mkdir -p "$CASTTY_SRCDIR"
 
+    ## VIDEO
+    echo Ingesting video...
     for i in $CASTTY_RECDIR/*.nut.zst; do
-        zstd -T0 -qdc "$i"  \
-            | \
-            ffmpeg -i - \
-                   -c:v libx264 -qp 0  \
-                   "$CASTTY_SRCDIR/$(basename -s .nut.zst $i).mkv"
+        test -f "$i" \
+            && zstd -T0 -qdc "$i"  \
+                | \
+                ffmpeg -i - \
+                       -c:v libx264 -qp 0  \
+                       "$CASTTY_SRCDIR/$(basename -s .nut.zst $i).mkv" \
+            && rm -v "$i"
+    done
+
+    ## AUDIO
+    echo Ingesting audio...
+    for i in $CASTTY_RECDIR/*.wav; do
+        test -f "$i" \
+            && ffmpeg -i "$i" \
+                      -c:a flac \
+                      "$CASTTY_SRCDIR/$(basename -s .wav $i).flac" \
+            && rm -v "$i"
     done
 
 
-    #make -j $CASTTY_NJOBS -f $CASTTY_MK $CASTTY_FILES
+    ## CLIPS
+    mkdir -p "$CASTTY_CLIPDIR"
+    echo Combining clips....
+    for v in $CASTTY_SRCDIR/video-*.mkv; do
+        if [ -f "$v" ]; then
+            num=$(echo "$v" | sed  -e 's!.*/\?video-\([^/]*\).mkv$!\1!')
+            a="$CASTTY_SRCDIR/audio-$num.flac"
+            o="$CASTTY_CLIPDIR/clip-$num.mkv"
+
+           if [ -f "$v" -a ! -f "$o" ] ; then
+               ffmpeg -i "$v" \
+                      -i "$a" \
+                      -map 0:v:0 -map 1:a:0 \
+                      -codec:v copy \
+                      -codec:a copy \
+                      "$o"
+           fi
+        fi
+    done
 }
 
 # Postprocess
@@ -109,7 +143,7 @@ castty_post() {
 }
 
 castty_clean() {
-    rm -rf out
+    rm -rf out clip
 }
 
 # Record
@@ -155,24 +189,58 @@ castty_record() {
         esac
     done
 
+    ## SETUP
 
     mkdir -p "$CASTTY_RECDIR"
 
+    # Create FIFO
+    if [ -e "$CASTTY_FIFO" ]; then
+        >&2 echo "ERROR: '$CASTTY_FIFO' already exists"
+        exit 1
+    fi
+    mkfifo "$CASTTY_FIFO"
+
+    zstd --fast - \
+         < "$CASTTY_FIFO" \
+         > "$OUTPUT_BASE_VIDEO".nut.zst  &
+
+    PID_ZSTD="$!"
+
+    ## CAPTURE
+    TIME_START=$(date '+%s.%3N')
+
+    # quirk: ffmpeg will return 255 when killed, so || with true
 
     # Capture video
-    ffmpeg \
+    ffmpeg -hide_banner \
         -f "$CASTTY_VIDEO_DEVICE" \
         -video_size "$CASTTY_VIDEO_SIZE" \
         -framerate "$CASTTY_VIDEO_FPS" \
         -i "$CASTTY_VIDEO_INPUT" \
         -codec:v rawvideo \
         -f nut - \
-        | \
-        zstd --fast - > "$OUTPUT_BASE_VIDEO".nut.zst
+        > "$CASTTY_FIFO" || true &
 
     # Capture audio
+    ffmpeg -hide_banner \
+        -f "$CASTTY_AUDIO_DEVICE" \
+        -i "$CASTTY_AUDIO_INPUT" \
+        -codec:a pcm_s16le  \
+        "$OUTPUT_BASE_AUDIO".wav \
+        || true
 
-    # Wait
+    TIME_END=$(date '+%s.%3N')
+
+    ## CLEANUP
+
+    # Wait for video to finish
+    wait "$PID_ZSTD"
+    rm "$CASTTY_FIFO"
+
+    printf "WALL TIME: %0.3f sec\n" $(echo "$TIME_END" - "$TIME_START" | bc)
+
+    true
+
 
 
     # if [ "$AUDIO" = yes ]; then
@@ -258,5 +326,3 @@ case "$1" in
         exit 1
         ;;
 esac
-
-exit 1
