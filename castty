@@ -67,6 +67,8 @@ castty_ingest() {
 
     ## VIDEO
     echo Ingesting video...
+
+    # raw video
     for i in $CASTTY_RECDIR/*.nut.zst; do
         test -f "$i" \
             && zstd -T0 -qdc "$i"  \
@@ -76,6 +78,13 @@ castty_ingest() {
                        "$CASTTY_SRCDIR/$(basename -s .nut.zst $i).mkv" \
             && rm -v "$i"
     done
+
+    # screenshots
+    for i in $CASTTY_RECDIR/*.png; do
+        test -f "$i" \
+            && mv "$i" "$CASTTY_SRCDIR"
+    done
+
 
     ## AUDIO
     echo Ingesting audio...
@@ -91,19 +100,31 @@ castty_ingest() {
     ## CLIPS
     mkdir -p "$CASTTY_CLIPDIR"
     echo Combining clips....
-    for v in $CASTTY_SRCDIR/video-*.mkv; do
+    for v in $CASTTY_SRCDIR/video-*.mkv  $CASTTY_SRCDIR/video-*.png; do
         if [ -f "$v" ]; then
-            num=$(echo "$v" | sed  -e 's!.*/\?video-\([^/]*\).mkv$!\1!')
+            b=$(basename "$v")
+            bb=$(echo "$b" | cut -d '.' -f 1)
+            s=$(echo "$b" | cut -d '.' -f 2)
+            num=$(echo "$bb" | sed  -e 's!video-\([^/]*\)$!\1!')
             a="$CASTTY_SRCDIR/audio-$num.flac"
             o="$CASTTY_CLIPDIR/clip-$num.mkv"
 
            if [ -f "$v" -a ! -f "$o" ] ; then
-               ffmpeg -i "$v" \
-                      -i "$a" \
-                      -map 0:v:0 -map 1:a:0 \
-                      -codec:v copy \
-                      -codec:a copy \
-                      "$o"
+               case "$s" in
+                   mkv)
+                       ffmpeg -i "$v" -i "$a" \
+                              -map 0:v:0 -map 1:a:0 \
+                              -c:v copy  -c:a copy \
+                              "$o"
+                       ;;
+                   png)
+                       ffmpeg -i "$v" -i "$a" \
+                              -map 0:v:0 -map 1:a:0 \
+                              -c:v libx264 -qp 0    \
+                              -c:a copy \
+                              "$o"
+                       ;;
+               esac
            fi
         fi
     done
@@ -150,8 +171,9 @@ castty_clean() {
 castty_record() {
 
     ## ARGUMENT VARIABLES
-    AUDIO=no
-    COMBINE=no
+    RECORD_AUDIO=yes
+    RECORD_VIDEO=yes
+    RECORD_SCREENSHOT=no
 
     # Get Command Line Arguments
     while [ "$1" != "" ]; do
@@ -165,19 +187,19 @@ castty_record() {
                 shift
                 shift
                 ;;
-            # -a) # Record only audio
-            #     AUDIO=yes
-            #     shift
-            #     ;;
-            # -c) # Combine prior audio with captured screen
-            #     COMBINE=yes
-            #     shift
-            #     ;;
-            # -w) # Window ID
-            #     WINDOW="$2"
-            #     shift
-            #     shift
-            #     ;;
+            -s)
+                RECORD_SCREENSHOT=yes
+                RECORD_VIDEO=no
+                shift
+                ;;
+            -na) # no audio
+                RECORD_AUDIO=no
+                shift
+                ;;
+            -nv) # no video
+                RECORD_VIDEO=no
+                shift
+                ;;
             # -nc) # TODO
             #     RECORDMYDESKTOP_ARGS="$RECORDMYDESKTOP_ARGS --no-cursor"
             #     shift
@@ -189,53 +211,77 @@ castty_record() {
         esac
     done
 
-    ## SETUP
 
+    ## SETUP ##
     mkdir -p "$CASTTY_RECDIR"
+    PID_WAIT=""
 
-    # Create FIFO
-    if [ -e "$CASTTY_FIFO" ]; then
-        >&2 echo "ERROR: '$CASTTY_FIFO' already exists"
-        exit 1
+    # Video setup
+    if [ "$RECORD_VIDEO" = yes ] ; then
+        # Create FIFO
+        if [ -e "$CASTTY_FIFO" ]; then
+            >&2 echo "ERROR: '$CASTTY_FIFO' already exists"
+            exit 1
+        fi
+        mkfifo "$CASTTY_FIFO"
+
+        zstd --fast - \
+             < "$CASTTY_FIFO" \
+             > "$OUTPUT_BASE_VIDEO".nut.zst  &
+        PID_WAIT="$!"
     fi
-    mkfifo "$CASTTY_FIFO"
 
-    zstd --fast - \
-         < "$CASTTY_FIFO" \
-         > "$OUTPUT_BASE_VIDEO".nut.zst  &
+    if [ "$RECORD_SCREENSHOT" = yes ] ; then
+        ffmpeg -hide_banner \
+               -f "$CASTTY_VIDEO_DEVICE" \
+               -video_size "$CASTTY_VIDEO_SIZE" \
+               -framerate 30 \
+               -i "$CASTTY_VIDEO_INPUT" \
+               -vframes 1 \
+               "$OUTPUT_BASE_VIDEO".png
+    fi
 
-    PID_ZSTD="$!"
 
-    ## CAPTURE
+    ## CAPTURE ##
     TIME_START=$(date '+%s.%3N')
 
     # quirk: ffmpeg will return 255 when killed, so || with true
 
     # Capture video
-    ffmpeg -hide_banner \
-        -f "$CASTTY_VIDEO_DEVICE" \
-        -video_size "$CASTTY_VIDEO_SIZE" \
-        -framerate "$CASTTY_VIDEO_FPS" \
-        -i "$CASTTY_VIDEO_INPUT" \
-        -codec:v rawvideo \
-        -f nut - \
-        > "$CASTTY_FIFO" || true &
+    if [ "$RECORD_VIDEO" = yes ] ; then
+        ffmpeg -hide_banner \
+               -f "$CASTTY_VIDEO_DEVICE" \
+               -video_size "$CASTTY_VIDEO_SIZE" \
+               -framerate "$CASTTY_VIDEO_FPS" \
+               -i "$CASTTY_VIDEO_INPUT" \
+               -codec:v rawvideo \
+               -f nut - \
+               > "$CASTTY_FIFO" || true &
+    fi
 
     # Capture audio
-    ffmpeg -hide_banner \
-        -f "$CASTTY_AUDIO_DEVICE" \
-        -i "$CASTTY_AUDIO_INPUT" \
-        -codec:a pcm_s16le  \
-        "$OUTPUT_BASE_AUDIO".wav \
-        || true
+    if [ "$RECORD_AUDIO" = yes ] ; then
+        ffmpeg -hide_banner \
+               -f "$CASTTY_AUDIO_DEVICE" \
+               -i "$CASTTY_AUDIO_INPUT" \
+               -codec:a pcm_s16le  \
+               "$OUTPUT_BASE_AUDIO".wav \
+            || true
+    fi
 
     TIME_END=$(date '+%s.%3N')
 
-    ## CLEANUP
+    ## CLEANUP ##
 
     # Wait for video to finish
-    wait "$PID_ZSTD"
-    rm "$CASTTY_FIFO"
+    if [ -n "$PID_WAIT" ] ; then
+        wait "$PID_WAIT"
+    fi
+
+    # Delete compression fifo
+    if [ -e "$CASTTY_FIFO" ]; then
+        rm "$CASTTY_FIFO"
+    fi
 
     printf "WALL TIME: %0.3f sec\n" $(echo "$TIME_END" - "$TIME_START" | bc)
 
