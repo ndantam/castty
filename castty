@@ -12,6 +12,7 @@ CASTTY_CLIPDIR="clip"
 CASTTY_NJOBS="$((`nproc`))"
 CASTTY_FIFO="$CASTTY_RECDIR/fifo"
 
+alias ffmpeg="ffmpeg -hide_banner"
 
 ###################
 ## CONFIGURATION ##
@@ -133,28 +134,44 @@ castty_ingest() {
 # Postprocess
 castty_post() {
     # All source files
-    for i in "$CASTTY_SRCDIR"/slide-*.mkv; do echo "file '$i'"; done  > inputs.txt
+    for i in "$CASTTY_CLIPDIR"/clip-*.mkv; do echo "file '$i'"; done  > inputs.txt
 
     mkdir -p out
 
-    # Concatenate files and filter audio
+    # Concatenate
     ffmpeg -f concat -i inputs.txt \
-           -codec:v copy \
+           -codec:v libx264 -qp 0 \
+           -codec:a flac \
+           -ac 1 \
+           out/cat.mkv
+
+    # Filter audio
+    ffmpeg -i out/cat.mkv \
            -codec:a flac \
            -filter:a "$CASTTY_FILTER" \
-           -ac 1 \
+           out/filtered.flac
+
+    # Combine video and filtered audio
+    ffmpeg -i out/cat.mkv \
+           -i out/filtered.flac \
+           -map 0:v:0 -map 1:a:0 \
+           -codec:v copy \
+           -codec:a copy \
            out/hi-quality.mkv
 
-    # Encode audio
-    ffmpeg -i out/hi-quality.mkv  -vn \
+    # Re-encode audio
+    ffmpeg -i out/filtered.flac \
            -filter:a aresample=48000 \
            -codec:a pcm_s16le \
            -f wav - \
         | \
         fdkaac --profile 2 --bitrate-mode 4  - -o out/compressed.m4a
 
+    # TODO: check compatibility on pixel format. YUV444 looks better
+    # but might need YUV420 for compatibility with most players.
+
     # Transcode video and merge audio
-    ffmpeg -i out/hi-quality.mkv \
+    ffmpeg -i out/cat.mkv \
            -i out/compressed.m4a \
            -map 0:v:0 -map 1:a:0 \
            -codec:v libx264 -crf 23 \
@@ -232,8 +249,7 @@ castty_record() {
     fi
 
     if [ "$RECORD_SCREENSHOT" = yes ] ; then
-        ffmpeg -hide_banner \
-               -f "$CASTTY_VIDEO_DEVICE" \
+        ffmpeg -f "$CASTTY_VIDEO_DEVICE" \
                -video_size "$CASTTY_VIDEO_SIZE" \
                -framerate 30 \
                -i "$CASTTY_VIDEO_INPUT" \
@@ -249,8 +265,7 @@ castty_record() {
 
     # Capture video
     if [ "$RECORD_VIDEO" = yes ] ; then
-        ffmpeg -hide_banner \
-               -f "$CASTTY_VIDEO_DEVICE" \
+        ffmpeg -f "$CASTTY_VIDEO_DEVICE" \
                -video_size "$CASTTY_VIDEO_SIZE" \
                -framerate "$CASTTY_VIDEO_FPS" \
                -i "$CASTTY_VIDEO_INPUT" \
@@ -261,9 +276,9 @@ castty_record() {
 
     # Capture audio
     if [ "$RECORD_AUDIO" = yes ] ; then
-        ffmpeg -hide_banner \
-               -f "$CASTTY_AUDIO_DEVICE" \
+        ffmpeg -f "$CASTTY_AUDIO_DEVICE" \
                -i "$CASTTY_AUDIO_INPUT" \
+               -ac 1 \
                -codec:a pcm_s16le  \
                "$OUTPUT_BASE_AUDIO".wav \
             || true
