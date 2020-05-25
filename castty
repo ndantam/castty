@@ -55,7 +55,58 @@ export CASTTY_VIDEO_SIZE
 export CASTTY_VIDEO_FPS
 export CASTTY_VIDEO_INPUT
 
+castty_screenshot() {
+    f="$CASTTY_RECDIR/$1"
+    ffmpeg -f "$CASTTY_VIDEO_DEVICE" \
+           -video_size "$CASTTY_VIDEO_SIZE" \
+           -framerate 30 \
+           -i "$CASTTY_VIDEO_INPUT" \
+           -vframes 1 \
+           "$f"
+}
 
+
+castty_overlay() {
+    # Get Command Line Arguments
+    while [ "$1" != "" ]; do
+        case "$1" in
+            -n) # Output clip number
+                num="$2"
+                v="$CASTTY_SRCDIR/video-$num.mkv"
+                a="$CASTTY_SRCDIR/audio-$num.flac"
+                b="$CASTTY_SRCDIR/bg-$num.png"
+                o="$CASTTY_CLIPDIR/clip-$num.mkv"
+                shift
+                shift
+                ;;
+            *)
+                echo " ERROR: invalid argument \`$1'"
+                exit 1
+                ;;
+        esac
+    done
+
+    ## TODO: parameters for size and offset
+    ffmpeg  -i "$v"  -i "$b" -i "$a" \
+            -filter_complex \
+            "[0:v]scale=1440:810[outv];[1:v][outv]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2+75[outvx]" \
+            -map '[outvx]:v:0' -map 2:a:0 \
+            -c:a copy \
+            -c:v libx264 -qp 0 "$o"
+}
+
+
+castty_ingestpdf() {
+
+    mkdir -p "$CASTTY_CLIPDIR"/slides
+               #-scale-to-y 1080 \
+    # Quirk: resolution is off by one, does not match screenshots
+    pdftocairo -png \
+               -cropbox \
+               src/slides.pdf \
+               -scale-to 1920 \
+               "$CASTTY_CLIPDIR"/slides/slide
+}
 
 
 # Transcode source files
@@ -108,28 +159,35 @@ castty_ingest() {
             s=$(echo "$b" | cut -d '.' -f 2)
             num=$(echo "$bb" | sed  -e 's!video-\([^/]*\)$!\1!')
             a="$CASTTY_SRCDIR/audio-$num.flac"
+            bg="$CASTTY_SRCDIR/bg-$num.png"
             o="$CASTTY_CLIPDIR/clip-$num.mkv"
 
-           if [ -f "$v" -a ! -f "$o" ] ; then
-               case "$s" in
-                   mkv)
-                       ffmpeg -i "$v" -i "$a" \
-                              -map 0:v:0 -map 1:a:0 \
-                              -c:v copy  -c:a copy \
-                              "$o"
-                       ;;
-                   png)
-                       ffmpeg -i "$v" -i "$a" \
-                              -map 0:v:0 -map 1:a:0 \
-                              -c:v libx264 -qp 0    \
-                              -c:a copy \
-                              "$o"
-                       ;;
-               esac
-           fi
+            if [ ! -e "$o" ] ; then
+                if [ -f "$bg" ] ; then
+                    castty_overlay -n "$num"
+                else
+                    case "$s" in
+                        mkv)
+                            ffmpeg -i "$v" -i "$a" \
+                                   -map 0:v:0 -map 1:a:0 \
+                                   -c:v copy  -c:a copy \
+                                   "$o"
+                            ;;
+                        png)
+                            ffmpeg -i "$v" -i "$a" \
+                                   -map 0:v:0 -map 1:a:0 \
+                                   -c:v libx264 -qp 0    \
+                                   -c:a copy \
+                                   "$o"
+                            ;;
+                    esac
+                fi
+            fi
         fi
     done
 }
+
+
 
 # Postprocess
 castty_post() {
@@ -186,7 +244,6 @@ castty_clean() {
 
 # Record
 castty_record() {
-
     ## ARGUMENT VARIABLES
     RECORD_AUDIO=yes
     RECORD_VIDEO=yes
@@ -199,8 +256,9 @@ castty_record() {
                 # OUTPUT_BASE=`echo "$2" | sed -e 's/\\.[^\\.]*$//'`
                 # OUTPUT="$CASTTY_RECDIR/$OUTPUT_BASE.ogv"
                 # OUTPUT_AUDIO="$CASTTY_RECDIR/$OUTPUT_BASE.flac"
-                OUTPUT_BASE_VIDEO="$CASTTY_RECDIR/video-$2"
-                OUTPUT_BASE_AUDIO="$CASTTY_RECDIR/audio-$2"
+                OUTPUT="$2"
+                OUTPUT_BASE_VIDEO="$CASTTY_RECDIR/video-$OUTPUT"
+                OUTPUT_BASE_AUDIO="$CASTTY_RECDIR/audio-$OUTPUT"
                 shift
                 shift
                 ;;
@@ -302,20 +360,6 @@ castty_record() {
 
     true
 
-
-
-    # if [ "$AUDIO" = yes ]; then
-    #     echo Recording audio...
-
-    #     exec ffmpeg \
-    #          -f pulse -i "default" \
-    #          -ac 1 \
-    #          -acodec flac \
-    #          "$OUTPUT_AUDIO"
-    #     exit 1
-    # fi
-
-
     # if [ "$COMBINE" = yes ]; then
     #     vlc -I  dummy --no-loop --play-and-exit "$OUTPUT_AUDIO" &
     #     OUTPUT_VIDEO="$OUTPUT_BASE-tmp.ogv"
@@ -334,30 +378,9 @@ castty_record() {
     #         && rm "$OUTPUT_VIDEO" \
     #         && exit 0
     # fi
-
-
-    # # Audio and Video
-    # exec recordmydesktop $RECORDMYDESKTOP_ARGS \
-    #      --channels 1 \
-    #      --device "$DEVICE" \
-    #      --freq "$FREQ" \
-    #      --s_quality 10 \
-    #      --fps "$FPS" \
-    #      --v_quality 63 \
-    #      --workdir /tmp \
-    #      --stop-shortcut "Mod1+s" \
-    #      --windowid "$WINDOW" -o "$OUTPUT"
-
-
-
-    # ffmpeg \
-        #     -f pulse -i "default" \
-        #     -acodec flac \
-        #     -f x11grab -video_size 1920x1080 -framerate 15  -i :0.0+3840,0 \
-        #     -vcodec libx264 -qp 0 -preset ultrafast \
-        #     test.mp4
-
 }
+
+
 
 castty_env () {
     env | grep CASTTY
@@ -369,12 +392,28 @@ case "$1" in
     ingest)
         castty_ingest
     ;;
+    ingestpdf)
+        shift
+        castty_ingestpdf "$@"
+    ;;
     post)
         castty_post
     ;;
     rec|record)
         shift
         castty_record "$@"
+    ;;
+    screenshot)
+        shift
+        castty_screenshot "$@"
+        ;;
+    bg)
+        shift
+        castty_screenshot "bg-$1.png"
+    ;;
+    overlay)
+        shift
+        castty_overlay "$@"
     ;;
     clean)
         castty_clean
