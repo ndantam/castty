@@ -249,6 +249,7 @@ castty_record() {
     RECORD_AUDIO=yes
     RECORD_VIDEO=yes
     RECORD_SCREENSHOT=no
+    DRAW_MOUSE="-draw_mouse 0"
 
     # Get Command Line Arguments
     while [ "$1" != "" ]; do
@@ -261,6 +262,10 @@ castty_record() {
                 OUTPUT_BASE_VIDEO="$CASTTY_RECDIR/video-$OUTPUT"
                 OUTPUT_BASE_AUDIO="$CASTTY_RECDIR/audio-$OUTPUT"
                 shift
+                shift
+                ;;
+            -m)
+                DRAW_MOUSE="-draw_mouse 1"
                 shift
                 ;;
             -s)
@@ -317,6 +322,7 @@ castty_record() {
                -video_size "$CASTTY_VIDEO_SIZE" \
                -framerate 30 \
                -i "$CASTTY_VIDEO_INPUT" \
+               $DRAW_MOUSE \
                -vframes 1 \
                "$OUTPUT_BASE_VIDEO".png
     fi
@@ -331,6 +337,7 @@ castty_record() {
     if [ "$RECORD_VIDEO" = yes ] ; then
         ffmpeg \
             -f "$CASTTY_VIDEO_DEVICE" \
+            $DRAW_MOUSE \
             -video_size "$CASTTY_VIDEO_SIZE" \
             -framerate "$CASTTY_VIDEO_FPS" \
             -i "$CASTTY_VIDEO_INPUT" \
