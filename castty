@@ -36,6 +36,7 @@ fi
 # AUDIO
 : ${CASTTY_AUDIO_DEVICE:=pulse}
 : ${CASTTY_AUDIO_INPUT:=default}
+: ${CASTTY_AUDIO_PASUSPEND:=no}
 
 export CASTTY_AUDIO_INPUT
 export CASTTY_AUDIO_DEVICE
@@ -288,6 +289,11 @@ castty_record() {
 
 
     ## SETUP ##
+    if [ "$CASTTY_AUDIO_PASUSPEND" = yes ]; then
+       CASTTY_DO_PASUSPEND="pasuspender --"
+       else
+           CASTTY_DO_PASUSPEND=""
+    fi
     mkdir -p "$CASTTY_RECDIR"
     PID_WAIT=""
 
@@ -323,22 +329,24 @@ castty_record() {
 
     # Capture video
     if [ "$RECORD_VIDEO" = yes ] ; then
-        ffmpeg -f "$CASTTY_VIDEO_DEVICE" \
-               -video_size "$CASTTY_VIDEO_SIZE" \
-               -framerate "$CASTTY_VIDEO_FPS" \
-               -i "$CASTTY_VIDEO_INPUT" \
-               -codec:v rawvideo \
-               -f nut - \
-               > "$CASTTY_FIFO" || true &
+        ffmpeg \
+            -f "$CASTTY_VIDEO_DEVICE" \
+            -video_size "$CASTTY_VIDEO_SIZE" \
+            -framerate "$CASTTY_VIDEO_FPS" \
+            -i "$CASTTY_VIDEO_INPUT" \
+            -codec:v rawvideo \
+            -f nut - \
+            > "$CASTTY_FIFO" || true &
     fi
 
     # Capture audio
     if [ "$RECORD_AUDIO" = yes ] ; then
-        ffmpeg -f "$CASTTY_AUDIO_DEVICE" \
-               -i "$CASTTY_AUDIO_INPUT" \
-               -ac 1 \
-               -codec:a pcm_s16le  \
-               "$OUTPUT_BASE_AUDIO".wav \
+        $CASTTY_DO_PASUSPEND ffmpeg \
+                             -f "$CASTTY_AUDIO_DEVICE" \
+                             -i "$CASTTY_AUDIO_INPUT" \
+                             -ac 1 \
+                             -codec:a pcm_s16le  \
+                             "$OUTPUT_BASE_AUDIO".wav \
             || true
     fi
 

@@ -13,7 +13,9 @@
 # CASTTY_VIDEO_FPS=15
 CASTTY_VIDEO_INPUT=:0.0+3840,0
 
-
+CASTTY_AUDIO_DEVICE=alsa
+CASTTY_AUDIO_INPUT="plughw:1,0"
+CASTTY_AUDIO_PASUSPEND="yes"
 # Local Variables:
 # mode: shell-script
 # End:
