@@ -177,6 +177,7 @@ castty_ingest() {
                         png)
                             ffmpeg -i "$v" -i "$a" \
                                    -map 0:v:0 -map 1:a:0 \
+                                   -framerate "$CASTTY_VIDEO_FPS" \
                                    -c:v libx264 -qp 0    \
                                    -c:a copy \
                                    "$o"
@@ -201,13 +202,16 @@ castty_post() {
     ffmpeg -f concat -i inputs.txt \
            -codec:v libx264 -qp 0 \
            -codec:a flac \
+           -framerate "$CASTTY_VIDEO_FPS" \
            -ac 1 \
+           -max_muxing_queue_size 4096 \
            out/cat.mkv
 
     # Filter audio
     ffmpeg -i out/cat.mkv \
            -codec:a flac \
            -filter:a "$CASTTY_FILTER" \
+           -max_muxing_queue_size 4096 \
            out/filtered.flac
 
     # Combine video and filtered audio
@@ -216,6 +220,7 @@ castty_post() {
            -map 0:v:0 -map 1:a:0 \
            -codec:v copy \
            -codec:a copy \
+           -max_muxing_queue_size 4096 \
            out/hi-quality.mkv
 
     # Re-encode audio
