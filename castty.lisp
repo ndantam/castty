@@ -8,33 +8,35 @@
 ;;; Scenes ;;;
 ;;;;;;;;;;;;;;
 
-(defvar *audio-device* "pulse")
-(defvar *audio-input* "default")
-(defvar *audio-pasuspend* nil)
-(defvar *audio-filter* "highpass=f=80,lowpass=f=1200,loudnorm")
+(defparameter *base-scene*
+  '((:audio-device "pulse")
+    (:audio-input "default")
+    (:audio-pasuspend nil)
+    (:audio-filter "highpass=f=80,lowpass=f=1200,loudnorm")
 
-(defvar *video-fps* 15)
-(defvar *video-device* "x11grab")
-(defvar *video-size* "1920x1080")
+    (:video-fps 15)
+    (:video-device "x11grab")
+    (:video-size "1920x1080")))
+
+(defvar *scenes* nil)
 
 (defun scene-parameter (scene parameter)
-  (if (null scene)
-      (ecase parameter
-        (:audio-device *audio-device*)
-        (:audio-input *audio-input*)
-        (:audio-pasuspend *audio-pasuspend*)
-        (:audio-filter *audio-filter*)
-        (:video-fps *video-fps*)
-        (:video-device *video-device*)
-        (:video-size *video-size*)
-        (:video-input *video-input*))
-      (error 'unimplemented)))
+  (flet ((default ()
+           (if-let ((elt (assoc parameter *base-scene*)))
+             (cdr elt)
+             (error "Could not lookup `~A'" parameter))))
+    (if-let ((scene-alist (assoc scene  *scenes*)))
+      (if-let ((el (assoc parameter  (cdr scene-alist))))
+        (cdr el)
+        (default))
+      (default))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Files and Directories ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defvar *workdir* nil)
+
 
 (defun subdir (pathname subdirectory)
   (let ((pathname (pathname pathname)))
@@ -43,6 +45,23 @@
     (make-pathname :directory (append (pathname-directory pathname)
                                       (ensure-list subdirectory))
                    :defaults pathname)))
+
+
+(defvar *configdir* (subdir (user-homedir-pathname)
+                            '(".config" "castty")))
+
+(defun load-scenes (&optional file)
+  (let ((file (or file
+                  (merge-pathnames (make-pathname :name "scene-alist"
+                                                  :type "lisp")
+                                   *configdir*))))
+    (when (probe-file file)
+      (with-open-file (s file :direction :input)
+        (labels ((h (rest)
+                   (if-let ((scene (read s nil nil)))
+                     (h (cons scene rest))
+                     rest)))
+        (setf *scenes* (h nil)))))))
 
 (defun %record-file (file)
   (merge-pathnames file (subdir *workdir* "rec")))
@@ -127,13 +146,13 @@
 
 
 (defun record (&key
-                 scene
+                 (scene :default)
                  (number)
                  (audio t)
                  (video t)
                  (force)
                  (draw-mouse nil))
-
+  (load-scenes)
   (let ((wait-processes)
         (video-file (record-file "video"
                                  (format nil "~A.nut"
@@ -146,10 +165,10 @@
            ;; Checks
            ;; ------
            (flet ((check-file (file)
-                    (when (probe-file file))
+                    (when (probe-file file)
                       (if force
                           (sb-posix:unlink file)
-                          (error "Refusing to overwrite `~A'." file))))
+                          (error "Refusing to overwrite `~A'." file)))))
              (when video (check-file video-file))
              (when audio (check-file audio-file)))
 
