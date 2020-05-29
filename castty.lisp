@@ -104,35 +104,37 @@
                        rest))))
     (%merge-args args)))
 
-(defun %ffmpeg (args &key
-                       (output *standard-output*)
-                       (if-output-exists :error))
+(defun ffmpeg (args &key
+                      pasuspend
+                      (output *standard-output*)
+                      (if-output-exists :error))
 
-  (sb-ext:run-program "ffmpeg"
-                      (apply #'merge-args
-                             "-hide_banner" "-nostats"
-                             args)
-                      :output output
-                      :wait nil
-                      :error *error-output*
-                      :if-output-exists if-output-exists
-                      :search t))
-
-(defun ffmpeg (&rest args)
-  (%ffmpeg args))
+  (let ((args (apply #'merge-args
+                     "-hide_banner" "-nostats"
+                     args)))
+    (multiple-value-bind (program args)
+        (if pasuspend
+            (values "pasuspender" (list* "--" "ffmpeg" args))
+            (values "ffmpeg" args))
+      (sb-ext:run-program program args
+                          :output output
+                          :wait nil
+                          :error *error-output*
+                          :if-output-exists if-output-exists
+                          :search t))))
 
 
 (defun record-audio (&key file scene)
-  ;; TODO: pasuspend
-  (ffmpeg "-f" (scene-parameter scene :audio-device)
-          "-i" (scene-parameter scene :audio-input)
-          "-ac" "1"
-          "-codec:a" "pcm_s16le"
-          file))
+  (ffmpeg (list "-f" (scene-parameter scene :audio-device)
+                 "-i" (scene-parameter scene :audio-input)
+                 "-ac" "1"
+                 "-codec:a" "pcm_s16le"
+                 file)
+           :pasuspend (scene-parameter scene :audio-input)))
 
 
 (defun record-video (&key scene draw-mouse output)
-  (%ffmpeg (list "-f" (scene-parameter scene :video-device)
+  (ffmpeg (list "-f" (scene-parameter scene :video-device)
                  "-video_size" (scene-parameter scene :video-size)
                  "-i" (scene-parameter scene :video-input)
                  "-draw_mouse" (if draw-mouse "1" "0")
@@ -142,7 +144,6 @@
                  "-" )
            :output output
            :if-output-exists :append))
-
 
 
 (defun record (&key
