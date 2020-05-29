@@ -16,7 +16,6 @@
 (defvar *video-fps* 15)
 (defvar *video-device* "x11grab")
 (defvar *video-size* "1920x1080")
-(defvar *video-input* ":0.0")
 
 (defun scene-parameter (scene parameter)
   (if (null scene)
@@ -86,43 +85,119 @@
                        rest))))
     (%merge-args args)))
 
-(defun ffmpeg (&rest args)
+(defun %ffmpeg (args &key
+                       (output *standard-output*)
+                       (if-output-exists :error))
+
   (sb-ext:run-program "ffmpeg"
                       (apply #'merge-args
                              "-hide_banner" "-nostats"
-                             ;"-loglevel" "info"
                              args)
-                      :output *standard-output*
-                      ;:output "/dev/pts/15"
-                      ;if-output-exists :append
+                      :output output
+                      :wait nil
                       :error *error-output*
+                      :if-output-exists if-output-exists
                       :search t))
 
+(defun ffmpeg (&rest args)
+  (%ffmpeg args))
 
-(defun record-audio (&key number scene)
+
+(defun record-audio (&key file scene)
   ;; TODO: pasuspend
   (ffmpeg "-f" (scene-parameter scene :audio-device)
-        "-i" (scene-parameter scene :audio-input)
-        "-ac" "1"
-        "-codec:a" "pcm_s16le"
-        (record-file "audio" (record-part number) "wav")))
+          "-i" (scene-parameter scene :audio-input)
+          "-ac" "1"
+          "-codec:a" "pcm_s16le"
+          file))
 
+
+(defun record-video (&key scene draw-mouse output)
+  (%ffmpeg (list "-f" (scene-parameter scene :video-device)
+                 "-video_size" (scene-parameter scene :video-size)
+                 "-i" (scene-parameter scene :video-input)
+                 "-draw_mouse" (if draw-mouse "1" "0")
+                 "-framerate" (scene-parameter scene :video-fps)
+                 "-codec:v" "rawvideo"
+                 "-f" "nut"
+                 "-" )
+           :output output
+           :if-output-exists :append))
 
 
 
 (defun record (&key
+                 scene
                  (number)
                  (audio t)
                  (video t)
+                 (force)
                  (draw-mouse nil))
 
-  (let ((wait-pids))
+  (let ((wait-processes)
+        (video-file (record-file "video"
+                                 (format nil "~A.nut"
+                                         (record-part number))
+                                 "zst"))
+        (audio-file (record-file "audio" (record-part number) "wav"))
+        (proc-zstd))
+    (unwind-protect
+         (progn
+           ;; Checks
+           ;; ------
+           (flet ((check-file (file)
+                    (when (probe-file file))
+                      (if force
+                          (sb-posix:unlink file)
+                          (error "Refusing to overwrite `~A'." file))))
+             (when video (check-file video-file))
+             (when audio (check-file audio-file)))
 
-    ;; Setup
+           ;; Setup
+           ;; -----
+           ;; start zstd
+           (when video
+             (format t "Starting zstd...~%")
+             (setq proc-zstd
+                   (sb-ext:run-program "zstd"
+                                       (merge-args
+                                        "--fast" "-")
+                                       :wait nil
+                                       :input :stream
+                                       :output video-file
+                                       :search t
+                                       :error *error-output*))
+             (push proc-zstd wait-processes))
 
+           ;; Recording
+           ;; ---------
+           ;; video
+           (when video
+             (format t "Starting video...~%")
+             (push (record-video :scene scene
+                                 :draw-mouse draw-mouse
+                                 :output (sb-ext:process-input proc-zstd))
+                   wait-processes))
 
-    ;; Recording
+           ;; audio
+           (when audio
+             (format t "Starting audio...~%")
+             (push (record-audio :file audio-file :scene scene)
+                   wait-processes))
+           ;; no value
+           (values))
 
-
-    ;; Cleanup
-  ))
+      ;; Cleanup
+      ;; -------
+      (progn
+        ;; Our current process has Zstd's stdin open.  Must close for
+        ;; Zstd to exit when the FFMPEG process exits.
+        (when proc-zstd
+          (close (sb-ext:process-input proc-zstd)))
+        ;; Wait for processes to finish
+        (format t "Waiting...~%")
+        (dolist (p wait-processes)
+          (sb-ext:process-wait p))
+        ;; Remove fifo
+        (when (probe-file (record-fifo))
+          (sb-posix:unlink (record-fifo)))))))
