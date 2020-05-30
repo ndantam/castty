@@ -8,6 +8,8 @@
 ;;; Scenes ;;;
 ;;;;;;;;;;;;;;
 
+(defparameter *video-codec-lossless* (list "-c:v" "libx264" "-qp" "0"))
+
 (defparameter *base-scene*
   '((:audio-device "pulse")
     (:audio-input "default")
@@ -35,6 +37,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Files and Directories ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (defvar *workdir* nil)
 
 (defun check-workdir ()
@@ -78,11 +81,10 @@
       (merge-pathnames file (subdir *workdir* "src"))
       (subdir *workdir* "src")))
 
-
-(defun record-fifo ()
-  (make-pathname :name "video"
-                 :type "fifo"
-                 :directory (pathname-directory *workdir*)))
+(defun clip-file (&optional file)
+  (if file
+      (merge-pathnames file (subdir *workdir* "clip"))
+      (subdir *workdir* "clip")))
 
 (defun record-file (what part type)
   (%record-file (make-pathname :name (format nil "~A-~A" what part)
@@ -105,10 +107,10 @@
         (delete-file file)
         (error "Refusing to overwrite `~A'." file))))
 
+
 ;;;;;;;;;;;;;;;;;
 ;;; Recording ;;;
 ;;;;;;;;;;;;;;;;;
-
 
 (defun merge-args (&rest args)
   (labels ((%merge-args (args)
@@ -163,15 +165,20 @@
                       wait
                       pasuspend
                       input
+                      (print-command t)
                       (output *standard-output*)
                       (if-output-exists :error))
   (let ((args (apply #'merge-args
                      "-hide_banner" "-nostats"
+                     "-loglevel" "warning"
                      args)))
     (multiple-value-bind (program args)
         (if pasuspend
             (values "pasuspender" (list* "--" "ffmpeg" args))
             (values "ffmpeg" args))
+      (when print-command
+        (format print-command
+                "~&~A ~{~A~^ ~}~@[ &~]~%" program args (not wait)))
       (sb-ext:run-program program args
                           :output output
                           :wait wait
@@ -314,7 +321,7 @@
            ;; encode
            (setq ffmpeg-proc
                  (ffmpeg (list "-i" "-"
-                               "-codec:v" "libx264" "-qp" "0"
+                               *video-codec-lossless*
                                srcfile)
                          :input (sb-ext:process-output zstd-proc)
                          :wait t))
@@ -324,6 +331,68 @@
       ;; cleanup
       (process-cleanup zstd-proc))))
 
+
+(defun file-parts (pathname)
+  (let* ((name (pathname-name pathname))
+         (s (position #\- name))
+         (part (subseq name (1+ s)))
+         (ss (position #\- part)))
+    (if ss
+        (values part
+                (parse-integer (subseq part 0 ss))
+                (parse-integer (subseq part (1+ ss))))
+        (values part (parse-integer part) nil))))
+
+(defun ingest-clip (srcfile)
+  (let* ((part (file-parts srcfile))
+         (type (pathname-type srcfile))
+         (audio (merge-pathnames (make-pathname :name (format nil "audio-~A" part)
+                                                :type "flac")
+                                 srcfile))
+         (bg (merge-pathnames (make-pathname :name (format nil "bg-~A" part)
+                                                :type "png")
+                                 srcfile))
+         (clip (clip-file (make-pathname :name (format nil "clip-~A" part)
+                                         :type "mkv"))))
+    (unless (probe-file clip)
+      (flet ((h (args)
+               (let ((proc
+                      (ffmpeg args :wait t)))
+                 (check-ffmpeg-result proc))))
+
+        (cond
+          ((and (string= type "mkv")
+                (probe-file bg))
+           (h (list "-i" srcfile "-i" bg "-i" audio
+                    ; TODO: parameters for size and offset
+                    "-filter_complex"
+                    "[0:v]scale=1440:810[vscale];[1:v][vscale]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2+75[outv]"
+                    "-map" "[outv]:v:0" "-map" "2:a:0"
+                    *video-codec-lossless*
+                    "-c:a" "copy"
+                    clip)))
+          ((string= type "mkv")
+           (h (list "-i" srcfile "-i" audio
+                    "-map" "0:v:0" "-map" "1:a:0"
+                    "-c:v" "copy" "-c:a" "copy"
+                    clip)))
+          ((string= type "png")
+           (h (list "-i" srcfile "-i" audio
+                    "-map" "0:v:0" "-map" "1:a:0"
+                    *video-codec-lossless*
+                    "-c:a" "copy"
+                    clip)))
+          (t (error "Unrecognized file type `~A'" type)))))))
+
+
+(defun clip ()
+  (labels ((ls (f) (directory (src-file f)))
+           (h (path)
+             (map nil (lambda (f)
+                        (ingest-clip f))
+                  (ls path))))
+    (h #P"video-*.mkv")
+    (h #P"video-*.png")))
 
 (defun ingest (&key overwrite)
   (check-workdir)
