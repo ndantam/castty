@@ -124,6 +124,13 @@
                        rest))))
     (%merge-args args)))
 
+(defun process-cleanup (process)
+  (when process
+    (when (sb-ext:process-alive-p process)
+      (sb-ext:process-kill process 9)
+      (sb-ext:process-wait process))
+    (sb-ext:process-close process)))
+
 (defun zstd (&key
                (mode :compress)
                input
@@ -144,6 +151,13 @@
                         :if-output-exists (if overwrite :supersede :error)
                         :search t
                         :error *error-output*)))
+
+(defun check-zstd-result (process)
+  (assert (not (sb-ext:process-alive-p process)))
+  (let ((r (sb-ext:process-exit-code process)))
+  (unless (zerop r)
+    (error "Zstd returned `~A'" r))))
+
 
 (defun ffmpeg (args &key
                       wait
@@ -166,6 +180,11 @@
                           :if-output-exists if-output-exists
                           :search t))))
 
+(defun check-ffmpeg-result (process)
+  (assert (not (sb-ext:process-alive-p process)))
+  (let ((r (sb-ext:process-exit-code process)))
+  (unless (or (zerop r) (= r 255))
+    (error "FFmpeg returned `~A'" r))))
 
 (defun record-audio (&key file scene)
   (ffmpeg (list "-f" (scene-parameter scene :audio-device)
@@ -198,13 +217,13 @@
                  (draw-mouse nil))
   (check-workdir)
   (load-scenes)
-  (let ((wait-processes)
-        (video-file (record-file "video"
+  (let ((video-file (record-file "video"
                                  (format nil "~A.nut"
                                          (record-part number))
                                  "zst"))
         (audio-file (record-file "audio" (record-part number) "wav"))
-        (proc-zstd))
+        (proc-zstd)
+        (proc-ffmpeg))
     (unwind-protect
          (progn
            ;; Checks
@@ -220,8 +239,7 @@
              (setq proc-zstd
                    (zstd :mode :compress
                          :input :stream
-                         :output video-file))
-             (push proc-zstd wait-processes))
+                         :output video-file)))
 
            ;; Recording
            ;; ---------
@@ -231,30 +249,36 @@
              (push (record-video :scene scene
                                  :draw-mouse draw-mouse
                                  :output (sb-ext:process-input proc-zstd))
-                   wait-processes))
+                   proc-ffmpeg))
 
            ;; audio
            (when audio
              (format t "Starting audio...~%")
              (push (record-audio :file audio-file :scene scene)
-                   wait-processes))
+                   proc-ffmpeg))
+
+
+           ;; Normal Cleanup
+           ;; --------------
+           (format t "Waiting...~%")
+           (dolist (p proc-ffmpeg)
+             (sb-ext:process-wait p)
+             (check-ffmpeg-result p))
+           ;; Our current process has Zstd's stdin open.  Must close for
+           ;; Zstd to exit when the FFMPEG process exits.
+           (when proc-zstd
+             (close (sb-ext:process-input proc-zstd))
+             (sb-ext:process-wait proc-zstd)
+             (check-zstd-result proc-zstd))
+
            ;; no value
            (values))
 
-      ;; Cleanup
-      ;; -------
+      ;; Cleanup, Dammit
+      ;; ---------------
       (progn
-        ;; Our current process has Zstd's stdin open.  Must close for
-        ;; Zstd to exit when the FFMPEG process exits.
-        (when proc-zstd
-          (close (sb-ext:process-input proc-zstd)))
-        ;; Wait for processes to finish
-        (format t "Waiting...~%")
-        (dolist (p wait-processes)
-          (sb-ext:process-wait p))
-        ;; Remove fifo
-        (when (probe-file (record-fifo))
-          (sb-posix:unlink (record-fifo)))))))
+        (map nil #'process-cleanup proc-ffmpeg)
+        (process-cleanup proc-zstd)))))
 
 ;;;;;;;;;;;;;;;;;;
 ;;; Processing ;;;
@@ -263,10 +287,11 @@
 (defun ingest-audio (recfile &key overwrite)
   (let ((srcfile (src-file (make-pathname :name (pathname-name recfile) :type "flac"))))
     (check-file srcfile overwrite)
-    (ffmpeg (list "-i" recfile
-                  "-codec:a" "flac"
-                  srcfile)
-            :wait t)))
+    (let ((process (ffmpeg (list "-i" recfile
+                                 "-codec:a" "flac"
+                                 srcfile)
+                           :wait t)))
+      (check-ffmpeg-result process))))
 
 
 (defun ingest-video (recfile &key overwrite)
@@ -274,7 +299,8 @@
          (e (position #\. n :from-end t))
          (nn (subseq n 0 e))
          (srcfile (src-file (make-pathname :name nn :type "mkv")))
-         (zstd-proc))
+         (zstd-proc)
+         (ffmpeg-proc))
     (check-file srcfile overwrite)
     (unwind-protect
          (progn
@@ -286,15 +312,17 @@
                        :overwrite nil
                        :wait nil))
            ;; encode
-           (ffmpeg (list "-i" "-"
-                         "-codec:v" "libx264" "-qp" "0"
-                         srcfile)
-                   :input (sb-ext:process-output zstd-proc)
-                   :wait t)
-           (sb-ext:process-wait zstd-proc))
+           (setq ffmpeg-proc
+                 (ffmpeg (list "-i" "-"
+                               "-codec:v" "libx264" "-qp" "0"
+                               srcfile)
+                         :input (sb-ext:process-output zstd-proc)
+                         :wait t))
+           (check-ffmpeg-result ffmpeg-proc)
+           (sb-ext:process-wait zstd-proc)
+           (check-zstd-result zstd-proc))
       ;; cleanup
-      (when zstd-proc
-        (sb-ext:process-close zstd-proc)))))
+      (process-cleanup zstd-proc))))
 
 
 (defun ingest (&key overwrite)
