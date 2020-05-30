@@ -37,6 +37,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defvar *workdir* nil)
 
+(defun check-workdir ()
+  (assert (probe-file *workdir*)))
 
 (defun subdir (pathname subdirectory)
   (let ((pathname (pathname pathname)))
@@ -63,8 +65,18 @@
                      rest)))
         (setf *scenes* (h nil)))))))
 
+(defun recdir (&optional file)
+  (if file
+      (merge-pathnames file (subdir *workdir* "rec"))
+      (subdir *workdir* "rec")))
+
 (defun %record-file (file)
-  (merge-pathnames file (subdir *workdir* "rec")))
+  (merge-pathnames file (recdir)))
+
+(defun src-file (&optional file)
+  (if file
+      (merge-pathnames file (subdir *workdir* "src"))
+      (subdir *workdir* "src")))
 
 
 (defun record-fifo ()
@@ -87,9 +99,17 @@
 (defun record-part (number)
   (ensure-string number))
 
+(defun check-file (file &optional overwrite)
+  (when (probe-file file)
+    (if overwrite
+        (delete-file file)
+        (error "Refusing to overwrite `~A'." file))))
+
 ;;;;;;;;;;;;;;;;;
 ;;; Recording ;;;
 ;;;;;;;;;;;;;;;;;
+
+
 (defun merge-args (&rest args)
   (labels ((%merge-args (args)
              (when args
@@ -104,11 +124,33 @@
                        rest))))
     (%merge-args args)))
 
+(defun zstd (&key
+               (mode :compress)
+               input
+               output
+               overwrite
+               wait
+               fast)
+  (let ((args (merge-args (when fast "--fast")
+                          (ecase mode
+                            (:compress "--compress")
+                            (:decompress "--decompress"))
+                          "-")))
+    (sb-ext:run-program "zstd" args
+                        :wait wait
+                        :input input
+                        :if-input-does-not-exist  :error
+                        :output output
+                        :if-output-exists (if overwrite :supersede :error)
+                        :search t
+                        :error *error-output*)))
+
 (defun ffmpeg (args &key
+                      wait
                       pasuspend
+                      input
                       (output *standard-output*)
                       (if-output-exists :error))
-
   (let ((args (apply #'merge-args
                      "-hide_banner" "-nostats"
                      args)))
@@ -118,7 +160,8 @@
             (values "ffmpeg" args))
       (sb-ext:run-program program args
                           :output output
-                          :wait nil
+                          :wait wait
+                          :input input
                           :error *error-output*
                           :if-output-exists if-output-exists
                           :search t))))
@@ -151,8 +194,9 @@
                  (number)
                  (audio t)
                  (video t)
-                 (force)
+                 overwrite
                  (draw-mouse nil))
+  (check-workdir)
   (load-scenes)
   (let ((wait-processes)
         (video-file (record-file "video"
@@ -165,13 +209,8 @@
          (progn
            ;; Checks
            ;; ------
-           (flet ((check-file (file)
-                    (when (probe-file file)
-                      (if force
-                          (sb-posix:unlink file)
-                          (error "Refusing to overwrite `~A'." file)))))
-             (when video (check-file video-file))
-             (when audio (check-file audio-file)))
+           (when video (check-file video-file overwrite))
+           (when audio (check-file audio-file overwrite))
 
            ;; Setup
            ;; -----
@@ -179,14 +218,9 @@
            (when video
              (format t "Starting zstd...~%")
              (setq proc-zstd
-                   (sb-ext:run-program "zstd"
-                                       (merge-args
-                                        "--fast" "-")
-                                       :wait nil
-                                       :input :stream
-                                       :output video-file
-                                       :search t
-                                       :error *error-output*))
+                   (zstd :mode :compress
+                         :input :stream
+                         :output video-file))
              (push proc-zstd wait-processes))
 
            ;; Recording
@@ -221,3 +255,57 @@
         ;; Remove fifo
         (when (probe-file (record-fifo))
           (sb-posix:unlink (record-fifo)))))))
+
+;;;;;;;;;;;;;;;;;;
+;;; Processing ;;;
+;;;;;;;;;;;;;;;;;;
+
+(defun ingest-audio (recfile &key overwrite)
+  (let ((srcfile (src-file (make-pathname :name (pathname-name recfile) :type "flac"))))
+    (check-file srcfile overwrite)
+    (ffmpeg (list "-i" recfile
+                  "-codec:a" "flac"
+                  srcfile)
+            :wait t)))
+
+
+(defun ingest-video (recfile &key overwrite)
+  (let* ((n (pathname-name recfile))
+         (e (position #\. n :from-end t))
+         (nn (subseq n 0 e))
+         (srcfile (src-file (make-pathname :name nn :type "mkv")))
+         (zstd-proc))
+    (check-file srcfile overwrite)
+    (unwind-protect
+         (progn
+           ;; decompress
+           (setq zstd-proc
+                 (zstd :mode :decompress
+                       :input recfile
+                       :output :stream
+                       :overwrite nil
+                       :wait nil))
+           ;; encode
+           (ffmpeg (list "-i" "-"
+                         "-codec:v" "libx264" "-qp" "0"
+                         srcfile)
+                   :input (sb-ext:process-output zstd-proc)
+                   :wait t)
+           (sb-ext:process-wait zstd-proc))
+      ;; cleanup
+      (when zstd-proc
+        (sb-ext:process-close zstd-proc)))))
+
+
+(defun ingest (&key overwrite)
+  (check-workdir)
+  (ensure-directories-exist (src-file))
+  (flet ((ls (f) (directory (recdir f))))
+    ;; AUDIO
+    (map nil (lambda (f)
+               (ingest-audio f :overwrite overwrite))
+         (ls #P"*.wav"))
+    ;; VIDEO
+    (map nil (lambda (f)
+               (ingest-video f :overwrite overwrite))
+         (ls #P"*.nut.zst"))))
