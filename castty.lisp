@@ -108,6 +108,16 @@
         (error "Refusing to overwrite `~A'." file))))
 
 
+(defun clean ()
+  (labels ((validate (thing)
+             (and (eq :absolute
+                      (car (pathname-directory thing))))))
+
+    (when (probe-file (clip-file))
+      (uiop/filesystem:delete-directory-tree (clip-file)
+                                             :validate #'validate))))
+
+
 ;;;;;;;;;;;;;;;;;
 ;;; Recording ;;;
 ;;;;;;;;;;;;;;;;;
@@ -161,12 +171,15 @@
     (error "Zstd returned `~A'" r))))
 
 
+;; Quirk: reading from slime's standard input may do bad things and/or
+;; hang
 (defun ffmpeg (args &key
                       wait
                       pasuspend
                       input
                       (print-command t)
-                      (output *standard-output*)
+                      ;(output *standard-output*)
+                      output
                       (if-output-exists :error))
   (let ((args (apply #'merge-args
                      "-hide_banner" "-nostats"
@@ -291,6 +304,45 @@
 ;;; Processing ;;;
 ;;;;;;;;;;;;;;;;;;
 
+;; TODO: unwind-protect to cleanup any running processes
+(defun multi-process (thunks &key (jobs 4))
+  (labels ((procloop (thunks procs failed)
+             (cond
+               ;; Start next process
+               ((and (not failed)
+                     thunks
+                     (< (length procs) jobs))
+                (procloop (cdr thunks)
+                          (cons (funcall (car thunks)) procs)
+                          failed))
+               ;; Wait for process
+               (procs
+                (let ((process))
+                  ;; This is dumb, but SBCL seems to not let us wait()
+                  ;; for multiple children.  Polling it is.
+                  (sb-ext:wait-for (setq process
+                                         (find-if-not #'sb-ext:process-alive-p procs))
+                                   :timeout 1)
+                  (if process
+                      (progn
+                        (sb-ext:process-wait process)
+                        (let ((ok (zerop (sb-ext:process-exit-code process))))
+                          (sb-ext:process-close process)
+                          (procloop thunks
+                                    (remove process procs :test #'eq)
+                                    (or (not ok) failed))))
+                      ;; repeat
+                      (procloop thunks procs failed))))
+
+               ;; Result
+               (t
+                failed))))
+
+    (let ((failed (procloop thunks nil nil)))
+      (when failed
+        (error "Multi-processing failed")))))
+
+
 (defun ingest-audio (recfile &key overwrite)
   (let ((srcfile (src-file (make-pathname :name (pathname-name recfile) :type "flac"))))
     (check-file srcfile overwrite)
@@ -343,27 +395,28 @@
                 (parse-integer (subseq part (1+ ss))))
         (values part (parse-integer part) nil))))
 
-(defun ingest-clip (srcfile)
-  (let* ((part (file-parts srcfile))
-         (type (pathname-type srcfile))
-         (audio (merge-pathnames (make-pathname :name (format nil "audio-~A" part)
-                                                :type "flac")
-                                 srcfile))
-         (bg (merge-pathnames (make-pathname :name (format nil "bg-~A" part)
-                                                :type "png")
-                                 srcfile))
+(defun ingest-clip (audio)
+  (flet ((h (args)
+           (lambda ()
+             (ffmpeg args :wait nil)))
+         (f (thing part type)
+           (merge-pathnames (make-pathname :name (format nil "~A-~A" thing part)
+                                           :type type)
+                            audio)))
+  (let* ((part (file-parts audio))
+         ;(type (pathname-type srcfile))
+         ;; (audio (merge-pathnames (make-pathname :name (format nil "audio-~A" part)
+         ;;                                        :type "flac")
+         ;;                         srcfile))
+         (video (f "video" part "mkv"))
+         (ss (f "video" part "png") )
+         (bg (f "bg" part "png") )
          (clip (clip-file (make-pathname :name (format nil "clip-~A" part)
                                          :type "mkv"))))
     (unless (probe-file clip)
-      (flet ((h (args)
-               (let ((proc
-                      (ffmpeg args :wait t)))
-                 (check-ffmpeg-result proc))))
-
         (cond
-          ((and (string= type "mkv")
-                (probe-file bg))
-           (h (list "-i" srcfile "-i" bg "-i" audio
+          ((and (probe-file video) (probe-file bg))
+           (h (list "-i" video  "-i" bg "-i" audio
                     ; TODO: parameters for size and offset
                     "-filter_complex"
                     "[0:v]scale=1440:810[vscale];[1:v][vscale]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2+75[outv]"
@@ -371,28 +424,31 @@
                     *video-codec-lossless*
                     "-c:a" "copy"
                     clip)))
-          ((string= type "mkv")
-           (h (list "-i" srcfile "-i" audio
+          ((probe-file video)
+           (h (list "-i" video "-i" audio
                     "-map" "0:v:0" "-map" "1:a:0"
                     "-c:v" "copy" "-c:a" "copy"
                     clip)))
-          ((string= type "png")
-           (h (list "-i" srcfile "-i" audio
+          ((probe-file ss)
+           (h (list "-i" ss "-i" audio
                     "-map" "0:v:0" "-map" "1:a:0"
                     *video-codec-lossless*
                     "-c:a" "copy"
                     clip)))
-          (t (error "Unrecognized file type `~A'" type)))))))
+          (t (error "No video for `~A'" audio)))))))
 
 
 (defun clip ()
+  (assert *workdir*)
+  (ensure-directories-exist (clip-file))
   (labels ((ls (f) (directory (src-file f)))
            (h (path)
-             (map nil (lambda (f)
+             (map 'list (lambda (f)
                         (ingest-clip f))
                   (ls path))))
-    (h #P"video-*.mkv")
-    (h #P"video-*.png")))
+    (multi-process
+     (remove nil
+             (append (h #P"audio-*.flac"))))))
 
 (defun ingest (&key overwrite)
   (check-workdir)
