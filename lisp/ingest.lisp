@@ -4,43 +4,43 @@
 ;;; Processing ;;;
 ;;;;;;;;;;;;;;;;;;
 
-;; TODO: unwind-protect to cleanup any running processes
-(defun multi-process (thunks &key (jobs 4))
-  (labels ((procloop (thunks procs failed)
-             (cond
-               ;; Start next process
-               ((and (not failed)
-                     thunks
-                     (< (length procs) jobs))
-                (procloop (cdr thunks)
-                          (cons (funcall (car thunks)) procs)
-                          failed))
-               ;; Wait for process
-               (procs
-                (let ((process))
-                  ;; This is dumb, but SBCL seems to not let us wait()
-                  ;; for multiple children.  Polling it is.
-                  (sb-ext:wait-for (setq process
-                                         (find-if-not #'sb-ext:process-alive-p procs))
-                                   :timeout 1)
-                  (if process
-                      (progn
-                        (sb-ext:process-wait process)
-                        (let ((ok (zerop (sb-ext:process-exit-code process))))
-                          (sb-ext:process-close process)
-                          (procloop thunks
-                                    (remove process procs :test #'eq)
-                                    (or (not ok) failed))))
-                      ;; repeat
-                      (procloop thunks procs failed))))
+;; ;; TODO: unwind-protect to cleanup any running processes
+;; (defun multi-process (thunks &key (jobs 4))
+;;   (labels ((procloop (thunks procs failed)
+;;              (cond
+;;                ;; Start next process
+;;                ((and (not failed)
+;;                      thunks
+;;                      (< (length procs) jobs))
+;;                 (procloop (cdr thunks)
+;;                           (cons (funcall (car thunks)) procs)
+;;                           failed))
+;;                ;; Wait for process
+;;                (procs
+;;                 (let ((process))
+;;                   ;; This is dumb, but SBCL seems to not let us wait()
+;;                   ;; for multiple children.  Polling it is.
+;;                   (sb-ext:wait-for (setq process
+;;                                          (find-if-not #'sb-ext:process-alive-p procs))
+;;                                    :timeout 1)
+;;                   (if process
+;;                       (progn
+;;                         (sb-ext:process-wait process)
+;;                         (let ((ok (zerop (sb-ext:process-exit-code process))))
+;;                           (sb-ext:process-close process)
+;;                           (procloop thunks
+;;                                     (remove process procs :test #'eq)
+;;                                     (or (not ok) failed))))
+;;                       ;; repeat
+;;                       (procloop thunks procs failed))))
 
-               ;; Result
-               (t
-                failed))))
+;;                ;; Result
+;;                (t
+;;                 failed))))
 
-    (let ((failed (procloop thunks nil nil)))
-      (when failed
-        (error "Multi-processing failed")))))
+;;     (let ((failed (procloop thunks nil nil)))
+;;       (when failed
+;;         (error "Multi-processing failed")))))
 
 
 (defun ingest-audio (recfile &key overwrite)
@@ -97,8 +97,7 @@
 
 (defun ingest-clip (audio)
   (flet ((h (args)
-           (lambda ()
-             (ffmpeg args :wait nil)))
+           (check-ffmpeg-result (ffmpeg args :wait t)))
          (f (thing part type)
            (merge-pathnames (make-pathname :name (format nil "~A-~A" thing part)
                                            :type type)
@@ -141,24 +140,21 @@
 (defun clip ()
   (assert *workdir*)
   (ensure-directories-exist (clip-file))
-  (labels ((ls (f) (directory (src-file f)))
-           (h (path)
-             (map 'list (lambda (f)
-                        (ingest-clip f))
-                  (ls path))))
-    (multi-process
-     (remove nil
-             (append (h #P"audio-*.flac"))))))
+  (labels ((ls (f) (directory (src-file f))))
+    (pdolist (audio (ls #P"audio-*.flac"))
+      (ingest-clip audio))))
 
 (defun ingest (&key overwrite)
   (check-workdir)
   (ensure-directories-exist (src-file))
   (flet ((ls (f) (directory (recdir f))))
-    ;; AUDIO
-    (map nil (lambda (f)
-               (ingest-audio f :overwrite overwrite))
-         (ls #P"*.wav"))
-    ;; VIDEO
-    (map nil (lambda (f)
-               (ingest-video f :overwrite overwrite))
-         (ls #P"*.nut.zst"))))
+    (pdolist (f (append (ls #P"*.wav") (ls #P"*.nut.zst")))
+      (cond
+        ;; AUDIO
+        ((string= "wav" (pathname-type f))
+         (ingest-audio f :overwrite overwrite))
+        ;; VIDEO
+        ((string= "zst" (pathname-type f))
+         (ingest-video f :overwrite overwrite))
+        ;; ERROR
+        (t (error "Unrecognized media type `~A'" f))))))

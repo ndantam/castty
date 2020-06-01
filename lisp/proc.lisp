@@ -81,5 +81,5 @@
 (defun check-ffmpeg-result (process)
   (assert (not (sb-ext:process-alive-p process)))
   (let ((r (sb-ext:process-exit-code process)))
-  (unless (or (zerop r) (= r 255))
-    (error "FFmpeg returned `~A'" r))))
+    (unless (or (zerop r) (= r 255))
+      (error "FFmpeg returned `~A'" r))))
