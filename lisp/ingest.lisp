@@ -84,17 +84,6 @@
       (process-cleanup zstd-proc))))
 
 
-(defun file-parts (pathname)
-  (let* ((name (pathname-name pathname))
-         (s (position #\- name))
-         (part (subseq name (1+ s)))
-         (ss (position #\- part)))
-    (if ss
-        (values part
-                (parse-integer (subseq part 0 ss))
-                (parse-integer (subseq part (1+ ss))))
-        (values part (parse-integer part) nil))))
-
 (defun ingest-clip (audio)
   (flet ((h (args)
            (check-ffmpeg-result (ffmpeg args :wait t)))
