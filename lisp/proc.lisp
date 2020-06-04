@@ -1,5 +1,12 @@
 (in-package :castty)
 
+(defun ensure-string (thing)
+  (etypecase thing
+    (string thing)
+    (pathname (namestring thing))
+    (symbol (string thing))
+    (fixnum (format nil "~D" thing))))
+
 (defun merge-args (&rest args)
   (labels ((%merge-args (args)
              (when args

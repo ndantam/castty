@@ -28,18 +28,23 @@
 
 (defun record (&key
                  (scene :default)
-                 (number)
+                 number
+                 subnumber
                  (audio t)
                  (video t)
                  overwrite
                  (draw-mouse nil))
   (check-workdir)
   (load-scenes)
-  (let ((video-file (record-file "video"
-                                 (format nil "~A.nut"
-                                         (record-part number))
-                                 "zst"))
-        (audio-file (record-file "audio" (record-part number) "wav"))
+  (let ((video-file (rec-file (part-file :tag "video"
+                                         :number number
+                                         :subnumber subnumber
+                                         :junk "nut"
+                                         :type "zst")))
+        (audio-file (rec-file (part-file :tag "audio"
+                                         :part number
+                                         :subnumber subnumber
+                                         :type "wav")))
         (proc-zstd)
         (proc-ffmpeg))
     (unwind-protect

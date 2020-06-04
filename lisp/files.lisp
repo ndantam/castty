@@ -34,69 +34,70 @@
                      rest)))
         (setf *scenes* (h nil)))))))
 
-(defun recdir (&optional file)
+(defun work-subdir (subdir &optional file)
   (if file
-      (merge-pathnames file (subdir *workdir* "rec"))
-      (subdir *workdir* "rec")))
+      (merge-pathnames file (subdir *workdir* subdir))
+      (subdir *workdir* subdir)))
 
-(defun part-file (&key tag number subnumber type)
-  (declare (type (or string non-negative-integer null) subnumber)
+(defun rec-file (&optional file)
+  (work-subdir "rec" file))
+(defun src-file (&optional file)
+  (work-subdir "src" file))
+(defun clip-file (&optional file)
+  (work-subdir "clip" file))
+(defun out-file (&optional file)
+  (work-subdir "out" file))
+(defun tmp-file (&optional file)
+  (work-subdir "tmp" file))
+
+;;; TAG-NUMBER[-SUBNUMBER][.JUNK].TYPE
+
+(defun part-file (&key tag part number subnumber type defaults junk)
+  (declare (type (or string non-negative-integer null) number subnumber)
            (type string tag type)
-           (type (or string non-negative-integer number)))
-  (make-pathname :name (if subnumber
-                           (format nil "~A-~A-~A" tag number subnumber)
-                           (format nil "~A-~A" tag number))
-                 :type type))
+           (type (or string null) part junk)
+           (type (or pathname null) defaults))
+  (let* ((name
+          (cond
+            ((and part
+                  (null number)
+                  (null subnumber))
+             (format nil "~A-~A" tag part))
+            ((and number subnumber)
+             (format nil "~A-~A-~A" tag number subnumber))
+            (number
+             (format nil "~A-~A" tag number))
+            (t
+             (error "Can't create part-file from arguments."))))
+         (pathname (make-pathname :name (if junk
+                                            (format nil "~A.~A" name junk)
+                                            name)
+                                  :type type)))
+    (if defaults
+        (merge-pathnames pathname defaults)
+        pathname)))
 
 (defun file-parts (pathname)
   (let* ((name (pathname-name pathname))
-         (ss (position #\- name :from-end t))
+         (end (position #\. name))
+         (ss (position #\- name :from-end t :end end))
          (s (position #\- name :end  ss  :from-end t))
          ;(part (subseq name (1+ s)))
          )
     (multiple-value-bind (part tag n sn)
         (if s
-            (values (subseq name (1+ s) )
-                    (subseq name 0  s)
+            (values (subseq name (1+ s) end)
+                    (subseq name 0 s)
                     (subseq name (1+ s) ss)
-                    (subseq name (1+ ss)))
-            (values (subseq name (1+ ss))
+                    (subseq name (1+ ss) end))
+            (values (subseq name (1+ ss) end)
                     (subseq name 0 ss)
-                    (subseq name (1+ ss))
+                    (subseq name (1+ ss) end)
                     nil))
       (values part
               tag
               (parse-integer n)
               (when sn (parse-integer sn))))))
-
-
-(defun %record-file (file)
-  (merge-pathnames file (recdir)))
-
-(defun src-file (&optional file)
-  (if file
-      (merge-pathnames file (subdir *workdir* "src"))
-      (subdir *workdir* "src")))
-
-(defun clip-file (&optional file)
-  (if file
-      (merge-pathnames file (subdir *workdir* "clip"))
-      (subdir *workdir* "clip")))
-
-(defun record-file (what part type)
-  (%record-file (make-pathname :name (format nil "~A-~A" what part)
-                               :type type)))
-
-
-(defun ensure-string (thing)
-  (etypecase thing
-    (string thing)
-    (pathname (namestring thing))
-    (symbol (string thing))
-    (fixnum (format nil "~D" thing))))
-
-(defun record-part (number)
-  (ensure-string number))
 
 (defun check-file (file &optional overwrite)
   (when (probe-file file)
@@ -113,19 +114,6 @@
     (when (probe-file (clip-file))
       (uiop/filesystem:delete-directory-tree (clip-file)
                                              :validate #'validate))))
-
-
-
-
-    ;; (values s ss)))
-
-    ;; (if ss
-    ;;     (values part
-    ;;             (parse-integer (subseq part 0 ss))
-    ;;             (parse-integer (subseq part (1+ ss))))
-    ;;     (values part (parse-integer part) nil))))
-
-
 
 (defun sort-files (thing)
   (let ((thing (etypecase thing
@@ -190,3 +178,15 @@
 
     ;; end
     (values)))
+
+
+(defun some-newer (target prerequisites)
+  (or (not (probe-file target))
+      (let ((mtime (file-write-date target)))
+        (some (lambda (p)
+                (< mtime (file-write-date p)))
+          (ensure-list prerequisites)))))
+
+(defmacro when-newer ((target prerequisites) &body body)
+  `(when (some-newer ,target ,prerequisites)
+    ,@body))
