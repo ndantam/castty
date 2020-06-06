@@ -47,22 +47,19 @@
   (declare (ignore overwrite))
   (let ((srcfile (src-file (make-pathname :name (pathname-name recfile) :type "flac"))))
     (when-newer (srcfile recfile )
-    ;(check-file srcfile overwrite)
-      (let ((process (ffmpeg (list "-i" recfile
-                                   "-codec:a" "flac"
-                                   srcfile)
-                             :wait t)))
-        (check-ffmpeg-result process)))))
+      (ffmpeg (list "-i" recfile
+                    "-codec:a" "flac"
+                    srcfile)
+              :wait t))))
 
 
 (defun ingest-video (recfile &key overwrite)
   (declare (ignore overwrite))
-  (let* ((part (file-parts recfile))
+  (let* ((part (part-file-part recfile))
          (srcfile (src-file (part-file :tag "video" :part part :type "mkv"))))
     (when-newer (srcfile recfile)
-      (let ((zstd-proc)
-            (ffmpeg-proc))
-        ;(check-file srcfile overwrite)
+      (let ((zstd-proc))
+                                        ;(check-file srcfile overwrite)
         (unwind-protect
              (progn
                ;; decompress
@@ -73,13 +70,11 @@
                            :overwrite nil
                            :wait nil))
                ;; encode
-               (setq ffmpeg-proc
-                     (ffmpeg (list "-i" "-"
-                                   *video-codec-lossless*
-                                   srcfile)
-                             :input (sb-ext:process-output zstd-proc)
-                             :wait t))
-               (check-ffmpeg-result ffmpeg-proc)
+               (ffmpeg (list "-i" "-"
+                             *video-codec-lossless*
+                             srcfile)
+                       :input (sb-ext:process-output zstd-proc)
+                       :wait t)
                (sb-ext:process-wait zstd-proc)
                (check-zstd-result zstd-proc))
           ;; cleanup
@@ -87,11 +82,11 @@
 
 
 (defun ingest-clip (audio)
-  (let* ((part (file-parts audio))
+  (let* ((part (part-file-part audio))
          (clip (clip-file (part-file :tag "clip" :part part :type "mkv"))))
     (flet ((h (prerequisites args)
              (when-newer (clip prerequisites)
-               (check-ffmpeg-result (ffmpeg args :wait t))))
+               (ffmpeg args :wait t)))
            (f (thing type)
              (merge-pathnames (make-pathname :name (format nil "~A-~A" thing part)
                                              :type type)
@@ -137,7 +132,7 @@
 (defun ingest (&key overwrite)
   (check-workdir)
   (ensure-directories-exist (src-file))
-  (flet ((ls (f) (directory (recdir f))))
+  (flet ((ls (f) (directory (rec-file f))))
     (pdolist (f (append (ls #P"*.wav") (ls #P"*.nut.zst")))
       (cond
         ;; AUDIO

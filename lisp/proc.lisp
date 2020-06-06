@@ -28,6 +28,42 @@
       (sb-ext:process-wait process))
     (sb-ext:process-close process)))
 
+(defun check-process-result (process &key name)
+  (assert (not (sb-ext:process-alive-p process)))
+  (let ((r (sb-ext:process-exit-code process)))
+    (unless (zerop r)
+      (error "~A returned `~A'" (or name "Process") r))))
+
+(defun check-zstd-result (process)
+  (check-process-result process :name "Zstd"))
+
+(defun check-ffmpeg-result (process)
+  (assert (not (sb-ext:process-alive-p process)))
+  (let ((r (sb-ext:process-exit-code process)))
+    (unless (or (zerop r) (= r 255))
+      (error "FFmpeg returned `~A'" r))))
+
+
+(defun run-program (program args
+                    &key
+                      wait
+                      input
+                      (if-input-does-not-exist :error)
+                      output
+                      (if-output-exists :error)
+                      (print-command t))
+  (when print-command
+    (format print-command
+            "~&~A ~{~A~^ ~}~@[ &~]~%" program args (not wait)))
+  (sb-ext:run-program program args
+                      :input input
+                      :if-input-does-not-exist if-input-does-not-exist
+                      :output output
+                      :if-output-exists if-output-exists
+                      :wait wait
+                      :error *error-output*
+                      :search t))
+
 (defun zstd (&key
                (mode :compress)
                input
@@ -40,21 +76,11 @@
                             (:compress "--compress")
                             (:decompress "--decompress"))
                           "-")))
-    (sb-ext:run-program "zstd" args
-                        :wait wait
-                        :input input
-                        :if-input-does-not-exist  :error
-                        :output output
-                        :if-output-exists (if overwrite :supersede :error)
-                        :search t
-                        :error *error-output*)))
-
-(defun check-zstd-result (process)
-  (assert (not (sb-ext:process-alive-p process)))
-  (let ((r (sb-ext:process-exit-code process)))
-  (unless (zerop r)
-    (error "Zstd returned `~A'" r))))
-
+    (run-program "zstd" args
+                 :wait wait
+                 :input input
+                 :output output
+                 :if-output-exists (if overwrite :supersede :error))))
 
 ;; Quirk: reading from slime's standard input may do bad things and/or
 ;; hang
@@ -64,29 +90,25 @@
                       input
                       (print-command t)
                       ;(output *standard-output*)
+                      overwrite
                       output
                       (if-output-exists :error))
   (let ((args (apply #'merge-args
                      "-hide_banner" "-nostats"
                      "-loglevel" "warning"
+                     (when overwrite "-y")
                      args)))
     (multiple-value-bind (program args)
         (if pasuspend
             (values "pasuspender" (list* "--" "ffmpeg" args))
             (values "ffmpeg" args))
-      (when print-command
-        (format print-command
-                "~&~A ~{~A~^ ~}~@[ &~]~%" program args (not wait)))
-      (sb-ext:run-program program args
-                          :output output
-                          :wait wait
-                          :input input
-                          :error *error-output*
-                          :if-output-exists if-output-exists
-                          :search t))))
 
-(defun check-ffmpeg-result (process)
-  (assert (not (sb-ext:process-alive-p process)))
-  (let ((r (sb-ext:process-exit-code process)))
-    (unless (or (zerop r) (= r 255))
-      (error "FFmpeg returned `~A'" r))))
+      (let ((proc (run-program program args
+                               :output output
+                               :wait wait
+                               :input input
+                               :print-command print-command
+                               :if-output-exists if-output-exists)))
+        (if wait
+            (check-process-result proc :name "FFmpeg")
+            proc)))))

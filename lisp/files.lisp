@@ -94,10 +94,16 @@
                     (subseq name 0 ss)
                     (subseq name (1+ ss) end)
                     nil))
-      (values part
-              tag
+      (values tag
+              part
               (parse-integer n)
               (when sn (parse-integer sn))))))
+
+
+(defun part-file-part (pathname)
+  (multiple-value-bind (tag part n sn) (file-parts pathname)
+    (declare (ignore tag n sn))
+    part))
 
 (defun check-file (file &optional overwrite)
   (when (probe-file file)
@@ -109,11 +115,16 @@
 (defun clean ()
   (labels ((validate (thing)
              (and (eq :absolute
-                      (car (pathname-directory thing))))))
+                      (car (pathname-directory thing)))))
+           (clean-path (path)
+             (when (probe-file path)
+               (uiop/filesystem:delete-directory-tree path :validate #'validate))))
 
-    (when (probe-file (clip-file))
-      (uiop/filesystem:delete-directory-tree (clip-file)
-                                             :validate #'validate))))
+    (clean-path (clip-file))
+    (clean-path (out-file))
+    (values)))
+
+
 
 (defun sort-files (thing)
   (let ((thing (etypecase thing
@@ -121,9 +132,9 @@
                  (list (copy-list thing)))))
     (sort thing
           (lambda (a b)
-            (multiple-value-bind (a-part a-tag a-x a-y) (file-parts a)
+            (multiple-value-bind (a-tag a-part a-x a-y) (file-parts a)
               (declare (ignore a-tag))
-              (multiple-value-bind (b-part b-tag b-x b-y) (file-parts b)
+              (multiple-value-bind (b-tag b-part b-x b-y) (file-parts b)
                 (declare (ignore b-tag))
                 (cond
                   ((and a-x b-x (not (eql a-x b-x)))
@@ -136,7 +147,7 @@
 
 (defun check-file-parts (files)
   (dolist (f files)
-    (multiple-value-bind (part tag n s) (file-parts f)
+    (multiple-value-bind (tag part n s) (file-parts f)
       (declare (ignore part tag))
       (check-type n non-negative-integer)
       (check-type s (or non-negative-integer null)))))
@@ -147,7 +158,7 @@
 
     ;; rename
     (dolist (f files)
-      (multiple-value-bind (part tag n s) (file-parts f)
+      (multiple-value-bind (tag part n s) (file-parts f)
         (declare (ignore part))
         (when (>= n number)
           (let ((g (src-file (part-file :tag tag
@@ -166,7 +177,7 @@
 
     ;; rename
     (dolist (f files)
-      (multiple-value-bind (part tag n s) (file-parts f)
+      (multiple-value-bind (tag part n s) (file-parts f)
         (declare (ignore part))
         (when (> n number)
           (let ((g (src-file (part-file :tag tag

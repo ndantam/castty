@@ -6,24 +6,26 @@
 
 (defun record-audio (&key file scene)
   (ffmpeg (list "-f" (scene-parameter scene :audio-device)
-                 "-i" (scene-parameter scene :audio-input)
-                 "-ac" "1"
-                 "-codec:a" "pcm_s16le"
-                 file)
-           :pasuspend (scene-parameter scene :audio-input)))
+                "-i" (scene-parameter scene :audio-input)
+                "-ac" "1"
+                "-codec:a" "pcm_s16le"
+                file)
+          :wait nil
+          :pasuspend (scene-parameter scene :audio-pasuspend)))
 
 
 (defun record-video (&key scene draw-mouse output)
   (ffmpeg (list "-f" (scene-parameter scene :video-device)
-                 "-video_size" (scene-parameter scene :video-size)
-                 "-i" (scene-parameter scene :video-input)
-                 "-draw_mouse" (if draw-mouse "1" "0")
-                 "-framerate" (scene-parameter scene :video-fps)
-                 "-codec:v" "rawvideo"
-                 "-f" "nut"
-                 "-" )
-           :output output
-           :if-output-exists :append))
+                "-video_size" (scene-parameter scene :video-size)
+                "-i" (scene-parameter scene :video-input)
+                "-draw_mouse" (if draw-mouse "1" "0")
+                "-framerate" (scene-parameter scene :video-fps)
+                "-codec:v" "rawvideo"
+                "-f" "nut"
+                "-" )
+          :wait nil
+          :output output
+          :if-output-exists :append))
 
 
 (defun record (&key
@@ -42,7 +44,7 @@
                                          :junk "nut"
                                          :type "zst")))
         (audio-file (rec-file (part-file :tag "audio"
-                                         :part number
+                                         :number number
                                          :subnumber subnumber
                                          :type "wav")))
         (proc-zstd)
