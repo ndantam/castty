@@ -17,9 +17,9 @@
 (defun record-video (&key scene draw-mouse output)
   (ffmpeg (list "-f" (scene-parameter scene :video-device)
                 "-video_size" (scene-parameter scene :video-size)
-                "-i" (scene-parameter scene :video-input)
-                "-draw_mouse" (if draw-mouse "1" "0")
                 "-framerate" (scene-parameter scene :video-fps)
+                "-draw_mouse" (if draw-mouse "1" "0")
+                "-i" (scene-parameter scene :video-input)
                 "-codec:v" "rawvideo"
                 "-f" "nut"
                 "-" )
