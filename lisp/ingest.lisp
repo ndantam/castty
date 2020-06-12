@@ -44,17 +44,16 @@
 
 
 (defun ingest-audio (recfile &key overwrite)
-  (declare (ignore overwrite))
   (let ((srcfile (src-file (make-pathname :name (pathname-name recfile) :type "flac"))))
     (when-newer (srcfile recfile )
       (ffmpeg (list "-i" recfile
                     "-codec:a" "flac"
                     srcfile)
+              :overwrite overwrite
               :wait t))))
 
 
 (defun ingest-video (recfile &key overwrite)
-  (declare (ignore overwrite))
   (let* ((part (part-file-part recfile))
          (srcfile (src-file (part-file :tag "video" :part part :type "mkv"))))
     (when-newer (srcfile recfile)
@@ -73,6 +72,7 @@
                (ffmpeg (list "-i" "-"
                              *video-codec-lossless*
                              srcfile)
+                       :overwrite overwrite
                        :input (sb-ext:process-output zstd-proc)
                        :wait t)
                (sb-ext:process-wait zstd-proc)
