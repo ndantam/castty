@@ -84,6 +84,7 @@
 (defun ingest-clip (audio)
   (let* ((part (part-file-part audio))
          (clip (clip-file (part-file :tag "clip" :part part :type "mkv"))))
+    (ensure-directories-exist clip)
     (flet ((h (prerequisites args)
              (when-newer (clip prerequisites)
                (ffmpeg args :wait t)))

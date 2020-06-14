@@ -36,6 +36,8 @@
                  (video t)
                  overwrite
                  (draw-mouse nil))
+  (declare (type (or null (eql t))
+                 audio video overwrite draw-mouse))
   (check-workdir)
   (load-scenes)
   (let ((video-file (rec-file (part-file :tag "video"

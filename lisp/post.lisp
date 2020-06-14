@@ -5,7 +5,7 @@
 (defun post (&key scene)
   (ensure-directories-exist (out-file))
   ;; collect inputs
-  (let ((clips (uiop/filesystem:directory-files (clip-file)))
+  (let ((clips (sort-files (uiop/filesystem:directory-files (clip-file))))
         (file-inputs (merge-pathnames "inputs.txt" *workdir*))
         (file-cat (out-file "cat.mkv"))
         (file-filtered (out-file "filtered.flac"))

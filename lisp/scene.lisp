@@ -10,7 +10,7 @@
   '((:audio-device "pulse")
     (:audio-input "default")
     (:audio-pasuspend nil)
-    (:audio-filter "highpass=f=80,lowpass=f=1200,loudnorm")
+    (:audio-filter "highpass=f=100,lowpass=f=10000,loudnorm")
 
     (:video-fps 15)
     (:video-device "x11grab")
