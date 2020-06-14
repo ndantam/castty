@@ -86,7 +86,8 @@
                ;; encode
                (setq proc-fdkaac
                      (run-program "fdkaac"
-                                  (merge-args "--profile" 2
+                                  (merge-args "--silent"
+                                              "--profile" 2
                                               "--bitrate-mode" 4
                                               "-"
                                               "-o" file-aac)

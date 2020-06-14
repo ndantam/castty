@@ -52,6 +52,13 @@
               :overwrite overwrite
               :wait t))))
 
+(defun ingest-image (recfile &key overwrite)
+  (let ((srcfile (src-file (make-pathname :name (pathname-name recfile)
+                                          :type (pathname-type recfile)))))
+    (when-newer (srcfile recfile )
+      (copy-file recfile srcfile
+                 :if-to-exists (if overwrite :supersede :error)))))
+
 
 (defun ingest-video (recfile &key overwrite)
   (let* ((part (part-file-part recfile))
@@ -82,45 +89,53 @@
 
 
 (defun ingest-clip (audio)
-  (let* ((part (part-file-part audio))
-         (clip (clip-file (part-file :tag "clip" :part part :type "mkv"))))
-    (ensure-directories-exist clip)
-    (flet ((h (prerequisites args)
-             (when-newer (clip prerequisites)
-               (ffmpeg args :wait t)))
-           (f (thing type)
-             (merge-pathnames (make-pathname :name (format nil "~A-~A" thing part)
-                                             :type type)
-                              audio)))
-      (let ((video (f "video" "mkv"))
-            (ss (f "video" "png") )
-            (bg (f "bg" "png")))
-        (unless (probe-file clip)
-          (cond
-            ((and (probe-file video) (probe-file bg))
-             (h (list video bg)
-                (list "-i" video  "-i" bg "-i" audio
+  (multiple-value-bind (tag part number subnumber) (file-parts audio)
+    (declare (ignore tag))
+    (let ((clip (clip-file (part-file :tag "clip" :part part :type "mkv"))))
+      (ensure-directories-exist clip)
+      (flet ((h (prerequisites args)
+               (when-newer (clip prerequisites)
+                 (ffmpeg args :wait t)))
+             (f (&key tag
+                      (number number)
+                      (subnumber subnumber)
+                      type)
+               (let ((file (src-file (part-file :tag tag
+                                                :number number
+                                                :subnumber subnumber
+                                                :type type))))
+                 (when (probe-file file) file))))
+        (let ((video (f :tag "video" :type "mkv"))
+              (ss (or (f :tag "video" :type "png")
+                      (f :tag "video" :subnumber nil :type "png")))
+              (bg (or (f :tag "bg" :type "png")
+                      (f :tag "bg" :subnumber nil :type "png"))))
+          (unless (probe-file clip)
+            (cond
+              ((and video bg)
+               (h (list video bg)
+                  (list "-i" video  "-i" bg "-i" audio
                                         ; TODO: parameters for size and offset
-                      "-filter_complex"
-                      "[0:v]scale=1440:810[vscale];[1:v][vscale]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2+75[outv]"
-                      "-map" "[outv]:v:0" "-map" "2:a:0"
-                      *video-codec-lossless*
-                      "-c:a" "copy"
-                      clip)))
-            ((probe-file video)
-             (h video
-                (list "-i" video "-i" audio
-                      "-map" "0:v:0" "-map" "1:a:0"
-                      "-c:v" "copy" "-c:a" "copy"
-                      clip)))
-            ((probe-file ss)
-             (h ss
-                (list "-i" ss "-i" audio
-                      "-map" "0:v:0" "-map" "1:a:0"
-                      *video-codec-lossless*
-                      "-c:a" "copy"
-                      clip)))
-            (t (error "No video for `~A'" audio))))))))
+                        "-filter_complex"
+                        "[0:v]scale=1440:810[vscale];[1:v][vscale]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2+75[outv]"
+                        "-map" "[outv]:v:0" "-map" "2:a:0"
+                        *video-codec-lossless*
+                        "-c:a" "copy"
+                        clip)))
+              (video
+               (h video
+                  (list "-i" video "-i" audio
+                        "-map" "0:v:0" "-map" "1:a:0"
+                        "-c:v" "copy" "-c:a" "copy"
+                        clip)))
+              (ss
+               (h ss
+                  (list "-i" ss "-i" audio
+                        "-map" "0:v:0" "-map" "1:a:0"
+                        *video-codec-lossless*
+                        "-c:a" "copy"
+                        clip)))
+              (t (error "No video for `~A'" audio)))))))))
 
 
 (defun clip ()
@@ -134,7 +149,9 @@
   (check-workdir)
   (ensure-directories-exist (src-file))
   (flet ((ls (f) (directory (rec-file f))))
-    (pdolist (f (append (ls #P"*.wav") (ls #P"*.nut.zst")))
+    (pdolist (f (append (ls #P"*.wav")
+                        (ls #P"*.nut.zst")
+                        (ls #P"*.png")))
       (cond
         ;; AUDIO
         ((string= "wav" (pathname-type f))
@@ -142,5 +159,8 @@
         ;; VIDEO
         ((string= "zst" (pathname-type f))
          (ingest-video f :overwrite overwrite))
+        ;; IMAGE
+        ((string= "png" (pathname-type f))
+         (ingest-image f :overwrite overwrite))
         ;; ERROR
         (t (error "Unrecognized media type `~A'" f))))))
