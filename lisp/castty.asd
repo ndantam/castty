@@ -1,6 +1,6 @@
 (asdf:defsystem castty
   :description "Video maker"
-  :depends-on ("alexandria")
+  :depends-on ("alexandria" "anthill")
   :components ((:file "package")
                (:file "scene" :depends-on ("package"))
                (:file "proc" :depends-on ("package"))

@@ -6,9 +6,11 @@
 
 (defun record-audio (&key file scene)
   (ffmpeg (list "-f" (scene-parameter scene :audio-device)
+                (when-let ((sample-rate (scene-parameter scene :audio-record-sample-rate)))
+                  (list "-sample_rate" sample-rate))
                 "-i" (scene-parameter scene :audio-input)
                 "-ac" "1"
-                "-codec:a" "pcm_s16le"
+                "-codec:a" (scene-parameter scene :audio-record-codec)
                 file)
           :wait nil
           :pasuspend (scene-parameter scene :audio-pasuspend)))
@@ -57,6 +59,7 @@
 
   (check-workdir)
   (load-scenes)
+  (ensure-directories-exist (rec-file))
   (let ((video-file (when (eq video t)
                       (rec-file (part-file :tag "video"
                                            :number number
