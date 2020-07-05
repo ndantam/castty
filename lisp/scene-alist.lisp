@@ -6,6 +6,10 @@
 
  (:video-input ":0.0+3840,0"))
 
+(:half
+ (:video-size "960x1080"))
+
+
 
 (:pulse
  (:audio-device . "pulse")
