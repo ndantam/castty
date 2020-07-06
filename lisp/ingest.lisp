@@ -118,60 +118,65 @@
 (defun ingest-clip (number subnumber)
   (let ((clip (clip-file (part-file :tag "clip" :number number :subnumber subnumber
                                     :type "mkv"))))
-  (flet ((h (prerequisites args)
-           (when-newer (clip prerequisites)
-             (ffmpeg args :wait t)))
-         (f (&key tag
-                  (number number)
-                  (subnumber subnumber)
-                  type)
-           (let ((file (src-file (part-file :tag tag
-                                            :number number
-                                            :subnumber subnumber
-                                            :type type))))
-             (when (probe-file file) file))))
-    (let ((video (f :tag "video" :type "mkv"))
-          (audio (f :tag "audio" :type "flac"))
-          (ss (or (f :tag "video" :type "png")
-                  (f :tag "video" :subnumber nil :type "png")))
-          (bg (or (f :tag "bg" :type "png")
-                  (f :tag "bg" :subnumber nil :type "png"))))
+    (flet ((h (prerequisites args)
+             (when-newer (clip prerequisites)
+               (ffmpeg args :wait t)))
+           (f (&key tag
+                    (number number)
+                    (subnumber subnumber)
+                    type)
+             (let ((file (src-file (part-file :tag tag
+                                              :number number
+                                              :subnumber subnumber
+                                              :type type))))
+               (when (probe-file file) file))))
+      (let ((video (f :tag "video" :type "mkv"))
+            (audio (f :tag "audio" :type "flac"))
+            (ss (or (f :tag "video" :type "png")
+                    (f :tag "video" :subnumber nil :type "png")))
+            (bg (or (f :tag "bg" :type "png")
+                    (f :tag "bg" :subnumber nil :type "png")))
+            (fps (scene-parameter nil :video-fps)))
 
-      (ensure-directories-exist clip)
-      (unless (probe-file clip)
-        (cond
-          ((and audio video bg)
-           (h (list audio video bg)
-              (list "-i" video  "-i" bg "-i" audio
+        (ensure-directories-exist clip)
+        (unless (probe-file clip)
+          (cond
+            ((and audio video bg)
+             (h (list audio video bg)
+                (list "-i" video  "-i" bg "-i" audio
                                         ; TODO: parameters for size and offset
-                    "-filter_complex" (overlay-filter video)
-                    "-map" "[outv]:v:0" "-map" "2:a:0"
-                    *video-codec-lossless*
-                    "-c:a" "copy"
-                    clip)))
-          ((and video bg)
-           (h (list video bg)
-              (list "-i" video  "-i" bg
+                      "-filter_complex" (overlay-filter video)
+                      "-map" "[outv]:v:0" "-map" "2:a:0"
+                      *video-codec-lossless*
+                      "-c:a" "copy"
+                      "-r" fps
+                      clip)))
+            ((and video bg)
+             (h (list video bg)
+                (list "-i" video  "-i" bg
                                         ; TODO: parameters for size and offset
-                    "-filter_complex" (overlay-filter video)
-                    "-map" "[outv]:v:0" "-map" "0:a:0"
-                    *video-codec-lossless*
-                    "-c:a" "copy"
-                    clip)))
-          ((and audio video)
-           (h (list audio video)
-              (list "-i" video "-i" audio
-                    "-map" "0:v:0" "-map" "1:a:0"
-                    "-c:v" "copy" "-c:a" "copy"
-                    clip)))
-          ((and audio ss)
-           (h (list audio ss)
-              (list "-i" ss "-i" audio
-                    "-map" "0:v:0" "-map" "1:a:0"
-                    *video-codec-lossless*
-                    "-c:a" "copy"
-                    clip)))
-          (t (error "Invalid sources for for `~A.~A'" number subnumber))))))))
+                      "-filter_complex" (overlay-filter video)
+                      "-map" "[outv]:v:0" "-map" "0:a:0"
+                      *video-codec-lossless*
+                      "-c:a" "copy"
+                      "-r" fps
+                      clip)))
+            ((and audio video)
+             (h (list audio video)
+                (list "-i" video "-i" audio
+                      "-map" "0:v:0" "-map" "1:a:0"
+                      "-c:v" "copy" "-c:a" "copy"
+                      "-r" fps
+                      clip)))
+            ((and audio ss)
+             (h (list audio ss)
+                (list "-i" ss "-i" audio
+                      "-map" "0:v:0" "-map" "1:a:0"
+                      *video-codec-lossless*
+                      "-c:a" "copy"
+                      "-r" fps
+                      clip)))
+            (t (error "Invalid sources for for `~A.~A'" number subnumber))))))))
 
 
 ;; (defun clip ()
