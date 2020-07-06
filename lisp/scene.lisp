@@ -13,7 +13,7 @@
     (:audio-pasuspend nil)
     (:audio-filter "highpass=f=100,lowpass=f=10000,loudnorm")
 
-    (:video-fps 15)
+    (:video-fps 30)
     (:video-device "x11grab")
     (:video-size "1920x1080")))
 
