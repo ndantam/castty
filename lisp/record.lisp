@@ -4,7 +4,7 @@
 ;;; Recording ;;;
 ;;;;;;;;;;;;;;;;;
 
-(defun record-audio (&key file scene)
+(defun record-audio (&key file scene overwrite)
   (ffmpeg (list "-f" (scene-parameter scene :audio-device)
                 (when-let ((sample-rate (scene-parameter scene :audio-record-sample-rate)))
                   (list "-sample_rate" sample-rate))
@@ -13,10 +13,11 @@
                 "-codec:a" (scene-parameter scene :audio-record-codec)
                 file)
           :wait nil
+          :overwrite overwrite
           :pasuspend (scene-parameter scene :audio-pasuspend)))
 
 
-(defun record-video (&key scene draw-mouse output)
+(defun record-video (&key scene draw-mouse output overwrite)
   (ffmpeg (list "-f" (scene-parameter scene :video-device)
                 "-video_size" (scene-parameter scene :video-size)
                 "-framerate" (scene-parameter scene :video-fps)
@@ -27,9 +28,10 @@
                 "-" )
           :wait nil
           :output output
+          :overwrite overwrite
           :if-output-exists :append))
 
-(defun record-screenshot (&key file scene (wait t))
+(defun record-screenshot (&key file scene (wait t) overwrite)
   (ffmpeg (list "-f" (scene-parameter scene :video-device)
                 "-video_size" (scene-parameter scene :video-size)
                 "-framerate" 30
@@ -37,60 +39,15 @@
                 "-i" (scene-parameter scene :video-input)
                 "-vframes" 1
                 file)
+          :overwrite overwrite
           :wait wait))
 
 
-(defun record (&key
-                 (scene :default)
-                 number
-                 subnumber
-                 (audio t)
-                 (video t)
-                 overwrite
-                 (draw-mouse nil))
-  (declare (type (or null (eql t))
-                 audio overwrite draw-mouse)
-           (type (or null (eql t)
-                     (eql :background)
-                     (eql :bg)
-                     (eql :screenshot)
-                     (eql :ss))
-                 video))
-
-  (check-workdir)
-  (load-scenes)
-  (ensure-directories-exist (rec-file))
-  (let ((video-file (when (eq video t)
-                      (rec-file (part-file :tag "video"
-                                           :number number
-                                           :subnumber subnumber
-                                           :junk "nut"
-                                           :type "zst"))))
-        (image-file (when (and video (not (eq video t)))
-                      (rec-file (part-file :tag (cond ((find video '(:background :bg))
-                                                       "bg")
-                                                      ((find video '(:ss :screenshot))
-                                                       "video")
-                                                      (t (error "Unknown video type: ~A"
-                                                                video)))
-                                           :number number
-                                           :subnumber subnumber
-                                           :type "png"))))
-
-        (audio-file (rec-file (part-file :tag "audio"
-                                         :number number
-                                         :subnumber subnumber
-                                         :type "wav")))
-        (proc-zstd)
-        (proc-ffmpeg))
+(defun %record (&key scene video-file audio-file image-file draw-mouse overwrite)
+  (let  ((proc-zstd)
+         (proc-ffmpeg))
     (unwind-protect
          (progn
-           ;; Checks
-           ;; ------
-           (when audio (check-file audio-file overwrite))
-           (when image-file (check-file image-file overwrite))
-           (when video-file (check-file video-file overwrite))
-
            ;; Setup
            ;; -----
            ;; start zstd
@@ -107,7 +64,8 @@
              (format t "Capturing screenshot...~%")
              (push (record-screenshot :scene scene
                                       :file image-file
-                                      :wait nil)
+                                      :wait nil
+                                      :overwrite overwrite)
                    proc-ffmpeg))
 
            ;; video
@@ -115,15 +73,18 @@
              (format t "Starting video...~%")
              (push (record-video :scene scene
                                  :draw-mouse draw-mouse
-                                 :output (sb-ext:process-input proc-zstd))
+                                 :output (sb-ext:process-input proc-zstd)
+                                 :overwrite overwrite)
                    proc-ffmpeg))
 
 
 
            ;; audio
-           (when audio
+           (when audio-file
              (format t "Starting audio...~%")
-             (push (record-audio :file audio-file :scene scene)
+             (push (record-audio :file audio-file
+                                 :scene scene
+                                 :overwrite overwrite)
                    proc-ffmpeg))
 
 
@@ -148,3 +109,59 @@
       (progn
         (map nil #'process-cleanup proc-ffmpeg)
         (process-cleanup proc-zstd)))))
+
+(defun record (&key
+                 (scene :default)
+                 number
+                 (audio t)
+                 (video t)
+                 overwrite
+                 (draw-mouse nil))
+  (declare (type (or null (eql t))
+                 audio overwrite draw-mouse)
+           (type (or null (eql t)
+                     (eql :background)
+                     (eql :bg)
+                     (eql :screenshot)
+                     (eql :ss))
+                 video))
+
+  (check-workdir)
+  (load-scenes)
+  (ensure-directories-exist (rec-file))
+  (let* ((subnumber  (etypecase number
+                       (number nil)
+                       (list (second number))))
+         (number (etypecase number
+                   (number number)
+                   (list (car number))))
+         (video-file (when (eq video t)
+                      (rec-file (part-file :tag "video"
+                                           :number number
+                                           :subnumber subnumber
+                                           :junk "nut"
+                                           :type "zst"))))
+        (image-file (when (and video (not (eq video t)))
+                      (rec-file (part-file :tag (cond ((find video '(:background :bg))
+                                                       "bg")
+                                                      ((find video '(:ss :screenshot))
+                                                       "video")
+                                                      (t (error "Unknown video type: ~A"
+                                                                video)))
+                                           :number number
+                                           :subnumber subnumber
+                                           :type "png"))))
+
+         (audio-file (when audio (rec-file (part-file :tag "audio"
+                                                      :number number
+                                                      :subnumber subnumber
+                                                      :type "wav")))))
+    (when audio-file (check-file audio-file overwrite))
+    (when image-file (check-file image-file overwrite))
+    (when video-file (check-file video-file overwrite))
+    (%record :scene scene
+             :video-file video-file
+             :audio-file (when audio audio-file)
+             :image-file image-file
+             :overwrite overwrite
+             :draw-mouse draw-mouse)))
