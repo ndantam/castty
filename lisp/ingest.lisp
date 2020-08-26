@@ -110,7 +110,9 @@
     (cond
       ((= aspect-ratio 16/9)
        "[0:v]scale=1440:810[vscale];[1:v][vscale]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2+75[outv]")
-       ((= aspect-ratio 8/9)
+      ((= aspect-ratio 4/3)
+       "[0:v]scale=1024:768[vscale];[1:v][vscale]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2+75[outv]")
+      ((= aspect-ratio 8/9)
         "[0:v]scale=720:810[vscale];[1:v][vscale]overlay=(main_w-overlay_w)/2+main_w/4:(main_h-overlay_h)/2+75[outv]")
       (t (error "Cannot handle overlay resolution `~A' of file `~A'"
                 res video)))))
