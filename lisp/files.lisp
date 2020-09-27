@@ -7,7 +7,14 @@
 (defvar *workdir* nil)
 
 (defun check-workdir ()
-  (assert (probe-file *workdir*)))
+  (let ((workdir (etypecase *workdir*
+                   (pathname *workdir*)
+                   (string (pathname *workdir*)))))
+   (assert (null (pathname-name workdir)))
+   (assert (null (pathname-type workdir)))
+  ;(assert (probe-file *workdir*))
+   (ensure-directories-exist *workdir*)
+   (values)))
 
 (defun subdir (pathname subdirectory)
   (let ((pathname (pathname pathname)))
