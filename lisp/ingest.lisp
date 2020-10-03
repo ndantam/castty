@@ -117,12 +117,13 @@
       (t (error "Cannot handle overlay resolution `~A' of file `~A'"
                 res video)))))
 
-(defun ingest-clip (number subnumber)
+(defun ingest-clip (number subnumber overwrite)
   (let ((clip (clip-file (part-file :tag "clip" :number number :subnumber subnumber
                                     :type "mkv"))))
     (flet ((h (prerequisites args)
              (when-newer (clip prerequisites)
-               (ffmpeg args :wait t)))
+               (format t "~&~A -> ~A~%" clip prerequisites)
+               (ffmpeg args :overwrite overwrite :wait t)))
            (f (&key tag
                     (number number)
                     (subnumber subnumber)
@@ -141,44 +142,43 @@
             (fps (scene-parameter nil :video-fps)))
 
         (ensure-directories-exist clip)
-        (unless (probe-file clip)
-          (cond
-            ((and audio video bg)
-             (h (list audio video bg)
-                (list "-i" video  "-i" bg "-i" audio
+        (cond
+          ((and audio video bg)
+           (h (list audio video bg)
+              (list "-i" video  "-i" bg "-i" audio
                                         ; TODO: parameters for size and offset
-                      "-filter_complex" (overlay-filter video)
-                      "-map" "[outv]:v:0" "-map" "2:a:0"
-                      *video-codec-lossless*
-                      "-c:a" "copy"
-                      "-r" fps
-                      clip)))
-            ((and video bg)
-             (h (list video bg)
-                (list "-i" video  "-i" bg
+                    "-filter_complex" (overlay-filter video)
+                    "-map" "[outv]:v:0" "-map" "2:a:0"
+                    *video-codec-lossless*
+                    "-c:a" "copy"
+                    "-r" fps
+                    clip)))
+          ((and video bg)
+           (h (list video bg)
+              (list "-i" video  "-i" bg
                                         ; TODO: parameters for size and offset
-                      "-filter_complex" (overlay-filter video)
-                      "-map" "[outv]:v:0" "-map" "0:a:0"
-                      *video-codec-lossless*
-                      "-c:a" "copy"
-                      "-r" fps
-                      clip)))
-            ((and audio video)
-             (h (list audio video)
-                (list "-i" video "-i" audio
-                      "-map" "0:v:0" "-map" "1:a:0"
-                      "-c:v" "copy" "-c:a" "copy"
-                      "-r" fps
-                      clip)))
-            ((and audio ss)
-             (h (list audio ss)
-                (list "-i" ss "-i" audio
-                      "-map" "0:v:0" "-map" "1:a:0"
-                      *video-codec-lossless*
-                      "-c:a" "copy"
-                      "-r" fps
-                      clip)))
-            (t (error "Invalid sources for for `~A.~A'" number subnumber))))))))
+                    "-filter_complex" (overlay-filter video)
+                    "-map" "[outv]:v:0" "-map" "0:a:0"
+                    *video-codec-lossless*
+                    "-c:a" "copy"
+                    "-r" fps
+                    clip)))
+          ((and audio video)
+           (h (list audio video)
+              (list "-i" video "-i" audio
+                    "-map" "0:v:0" "-map" "1:a:0"
+                    "-c:v" "copy" "-c:a" "copy"
+                    "-r" fps
+                    clip)))
+          ((and audio ss)
+           (h (list audio ss)
+              (list "-i" ss "-i" audio
+                    "-map" "0:v:0" "-map" "1:a:0"
+                    *video-codec-lossless*
+                    "-c:a" "copy"
+                    "-r" fps
+                    clip)))
+          (t (error "Invalid sources for for `~A.~A'" number subnumber)))))))
 
 
 ;; (defun clip ()
@@ -188,7 +188,7 @@
 ;;     (pdolist (audio (ls #P"audio-*.flac"))
 ;;       (ingest-clip audio))))
 
-(defun clip ()
+(defun clip (&key overwrite)
   (assert *workdir*)
   (let ((hash (make-hash-table :test #'equal)))
     (labels ((ls (f) (directory (src-file f)))
@@ -203,7 +203,7 @@
       (h (ls #P"video-*.png")))
 
     (pdolist (k (hash-table-keys hash))
-      (ingest-clip (first k) (second k)))))
+      (ingest-clip (first k) (second k) overwrite))))
 
 
 
