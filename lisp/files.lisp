@@ -6,6 +6,8 @@
 
 (defvar *workdir* nil)
 
+(defparameter *pidfile* (format nil "/var/run/user/~D/castty.pid" (sb-posix:getuid)))
+
 (defun check-workdir ()
   (let ((workdir (etypecase *workdir*
                    (pathname *workdir*)

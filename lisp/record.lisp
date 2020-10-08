@@ -45,7 +45,8 @@
 
 (defun %record (&key scene video-file audio-file image-file draw-mouse overwrite)
   (let  ((proc-zstd)
-         (proc-ffmpeg))
+         (proc-ffmpeg)
+         (proc-kill))
     (unwind-protect
          (progn
            ;; Setup
@@ -71,21 +72,30 @@
            ;; video
            (when video-file
              (format t "Starting video...~%")
-             (push (record-video :scene scene
-                                 :draw-mouse draw-mouse
-                                 :output (sb-ext:process-input proc-zstd)
-                                 :overwrite overwrite)
-                   proc-ffmpeg))
+             (let ((p (record-video :scene scene
+                                    :draw-mouse draw-mouse
+                                    :output (sb-ext:process-input proc-zstd)
+                                    :overwrite overwrite)))
+               (push p proc-ffmpeg)
+               (push p proc-kill)))
 
 
 
            ;; audio
            (when audio-file
              (format t "Starting audio...~%")
-             (push (record-audio :file audio-file
+             (let ((p (record-audio :file audio-file
                                  :scene scene
-                                 :overwrite overwrite)
-                   proc-ffmpeg))
+                                 :overwrite overwrite)))
+               (push p proc-ffmpeg)
+               (push p proc-kill)))
+
+           ;; Write PIDs
+           ;; ----------
+           (with-open-file (s *pidfile* :direction :output
+                              :if-exists :error :if-does-not-exist :create)
+             (dolist (p proc-kill)
+               (format s "~D~%" (sb-ext:process-pid p))))
 
 
            ;; Normal Cleanup
@@ -129,6 +139,8 @@
   (check-workdir)
   (load-scenes)
   (ensure-directories-exist (rec-file))
+  (when (probe-file *pidfile*)
+    (error "PID file exists.  Is recording still active?"))
   (let* ((subnumber  (etypecase number
                        (number nil)
                        (list (second number))))
