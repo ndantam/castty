@@ -2,7 +2,7 @@
 
 
 
-(defun post (&key scene)
+(defun %post (&key scene)
   (ensure-directories-exist (out-file))
   ;; collect inputs
   (let ((clips (sort-files (uiop/filesystem:directory-files (clip-file))))
@@ -14,6 +14,7 @@
         (file-compressed (out-file "compressed.mp4")))
 
     ;; TODO: maybe filter audio per-file
+    ;; TODO: Variable Frame Rate (-vsync vfr)
 
     ;; Concatenate
     ;; -----------
@@ -56,7 +57,6 @@
 
     ;; Combine video and filtered audio
     ;; --------------------------------
-    ;; TODO hi-quality
     (when-newer (file-hiq (list file-cat file-filtered))
       (ffmpeg (list "-i" file-cat
                     "-i" file-filtered
@@ -119,3 +119,11 @@
                     file-compressed)
               :overwrite t
               :wait t))))
+
+(defun post (&key (ingest t) (clip t) (post t) overwrite scene)
+  (when ingest
+    (ingest :overwrite overwrite))
+  (when clip
+    (clip :overwrite overwrite))
+  (when post
+    (%post :scene scene)))
