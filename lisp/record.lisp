@@ -92,10 +92,11 @@
 
            ;; Write PIDs
            ;; ----------
-           (with-open-file (s *pidfile* :direction :output
-                              :if-exists :error :if-does-not-exist :create)
-             (dolist (p proc-kill)
-               (format s "~D~%" (sb-ext:process-pid p))))
+           (when proc-kill
+             (with-open-file (s *pidfile* :direction :output
+                                :if-exists :error :if-does-not-exist :create)
+               (dolist (p proc-kill)
+                 (format s "~D~%" (sb-ext:process-pid p)))))
 
 
            ;; Normal Cleanup
