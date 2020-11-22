@@ -4,13 +4,19 @@
 ;;; Recording ;;;
 ;;;;;;;;;;;;;;;;;
 
+;; TODO
+
 (defun record-audio (&key file scene overwrite)
   (ffmpeg (list "-f" (scene-parameter scene :audio-device)
                 (when-let ((sample-rate (scene-parameter scene :audio-record-sample-rate)))
                   (list "-sample_rate" sample-rate))
+                "-codec:a" (scene-parameter scene :audio-record-codec)
                 "-i" (scene-parameter scene :audio-input)
                 "-ac" "1"
-                "-codec:a" (scene-parameter scene :audio-record-codec)
+                "-codec:a"
+                (if-let ((codec (scene-parameter scene :audio-record-codec-out)))
+                  codec
+                  (scene-parameter scene :audio-record-codec))
                 file)
           :wait nil
           :overwrite overwrite

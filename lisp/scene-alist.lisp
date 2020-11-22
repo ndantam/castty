@@ -1,8 +1,16 @@
 (:default
  (:audio-device . "alsa")
  (:audio-pasuspend . nil)
- (:audio-input . "plughw:2,1")
- (:audio-record-sample-rate . 96000)
+
+ ;;(:audio-input . "hw:VX222e0")
+
+
+ (:audio-input . "hw:PAD")
+ (:audio-record-codec . "pcm_s32le")
+ (:audio-record-codec-out . "pcm_s24le")
+
+ ;; (:audio-input . "hw:4,1")
+ ;; (:audio-record-sample-rate . 96000)
 
  (:video-input ":0.0+3840,0"))
 

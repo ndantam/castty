@@ -10,6 +10,7 @@
   '((:audio-device . "pulse")
     (:audio-input . "default")
     (:audio-record-codec . "pcm_s24le")
+    (:audio-record-sample-rate . nil)
     (:audio-pasuspend nil)
     (:audio-filter . "highpass=f=100,lowpass=f=10000,loudnorm")
 
