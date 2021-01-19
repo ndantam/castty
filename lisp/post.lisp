@@ -113,7 +113,7 @@
       (ffmpeg (list "-i" file-cat
                     "-i" file-aac
                     "-map" "0:v:0" "-map" "1:a:0"
-                    "-codec:v" "libx264" "-crf" 23
+                    "-codec:v" "libx264" "-crf" 23 "-pix_fmt" "yuv420p"
                     "-codec:a" "copy"
                     "-max_muxing_queue_size" "4096"
                     file-compressed)
