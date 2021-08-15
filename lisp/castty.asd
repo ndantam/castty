@@ -7,4 +7,5 @@
                (:file "files" :depends-on ("scene"))
                (:file "record" :depends-on ("files" "proc"))
                (:file "ingest" :depends-on ("files" "proc"))
-               (:file "post" :depends-on ("files" "proc"))))
+               (:file "post" :depends-on ("files" "proc"))
+               (:file "driver" :depends-on ("post"))))
