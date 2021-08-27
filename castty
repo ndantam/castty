@@ -14,11 +14,12 @@ castty_kill() {
 castty_run() {
     export CASTTY_COMMAND
 
-    exec sbcl --noinform --disable-debugger --disable-ldb --lose-on-corruption --noprint \
-         <<EOF
-         (require 'castty)
-         (castty::driver)
-EOF
+    exec sbcl --noinform --disable-ldb --lose-on-corruption --end-runtime-options \
+         --disable-debugger --noprint \
+         --eval "(require 'castty)" \
+         --eval "(castty::driver)" \
+         --eval "(sb-ext:quit)" \
+         --quit
 }
 
 
