@@ -9,7 +9,8 @@
     ;;(format t "command: ~A~&" command)
     (cond
       ((string= "POST" command)
-       (post)
-       )
+       (post))
+      ((string= "CLEAN" command)
+       (clean))
       (t
        (format *error-output* "~&ERROR: Unknown command `~A'~&" command)))))
