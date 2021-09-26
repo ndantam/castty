@@ -1,0 +1,56 @@
+This directory contains the initial shell implementation.
+
+
+CasTTY is a shell script to support lecture recording and
+postprocessing.
+
+
+WORKFLOW AND EXAMPLES
+=====================
+
+Record
+------
+
+Record screen and audio quickly with minimal / fast compression.
+
+
+Ingest
+------
+
+The initial recordings do not use the most efficient video codes.  The
+following command will transcode the recordings to save space on the
+source files:
+
+    castty ingest
+
+Postprocess
+-----------
+
+Postprocessing involves applying audio filters to improve quality and
+transcoding to reduce file size for distribution.  The following
+command will postprocess the recordings:
+
+    castty post
+
+
+FILES
+=====
+
+Configuration
+-------------
+
+* `$HOME/.config/casttyrc`: configuration file to set environment
+  variables
+
+Output Files
+------------
+
+* `./out/hi-quality.mkv`: high-quality video file
+* `./out/compressed.mp4`: compressed video file
+
+Directories
+-----------
+* `./rec/`: Directory containing initial recordings
+* `./src/`: Directory containing (lossless) transcoded recordings
+* `./out/`: Directory containing output files
+* `./tmp/`: Directory for Temporary working files

@@ -1,34 +1,96 @@
-CasTTY is a shell script to support lecture recording and
-postprocessing.
+CasTTY is a script for lecture recording and postprocessing.  It was
+written in the duress of 2020.  When it breaks, you get to keep both
+pieces.
 
 
 WORKFLOW AND EXAMPLES
 =====================
+
+Workflow
+--------
+
+CasTTY includes commands to:
+
+1. Record individual slides, or parts of slides.
+2. Postprocess recorded files, including:
+   - Transcoding,
+   - Applying video overlays on a background slide,
+   - Concatenating slides/parts,
+   - And audio filtering.
+
+Commands are run from the Common Lisp REPL, so it helps to have
+multiple monitors. Most of the real work is done by FFmpeg.
+
+Working Directory
+-----------------
+
+CasTTY operates relative to a working directory:
+
+    (setq castty:*workdir* "/PATH/TO/STORE/MY/VIDEO/FILES")
 
 Record
 ------
 
 Record screen and audio quickly with minimal / fast compression.
 
+* To record audio and video for a slide:
 
-Ingest
-------
+        (castty:record :number '(SLIDE-NUMBER SLIDE-PART) :video t :audio t)
 
-The initial recordings do not use the most efficient video codes.  The
-following command will transcode the recordings to save space on the
-source files:
+* To record audio and take a screenshot:
 
-    castty ingest
+        (castty:record :number '(SLIDE-NUMBER SLIDE-PART) :video :screenshot :audio t)
+
+* To take a screenshot and not record audio:
+
+        (castty:record :number '(SLIDE-NUMBER SLIDE-PART) :video :screenshot :audio nil)
+
+* To record audio and no video or screenshot:
+
+        (castty:record :number '(SLIDE-NUMBER SLIDE-PART) :video nil :audio t)
+
+
+To end the recording run the `casttykill` script; it helps configure a
+key binding in your window manager to call this script.
+
+Video Overlays
+--------------
+
+CasTTY can overlay a separate video (and audio) on a captured slide.
+
+1. Take a screenshot for the overlay background:
+
+        (castty:record :number '(SLIDE-NUMBER SLIDE-PART) :video :background :audio nil)
+
+2. Copy the video overlay into the `./src` directory.
+
+The overlay will be constructed during postprocessing.
 
 Postprocess
 -----------
 
-Postprocessing involves applying audio filters to improve quality and
-transcoding to reduce file size for distribution.  The following
-command will postprocess the recordings:
+Postprocessing involves transcoding, overlay construction,
+concatenation, and audio filtering.  The following command will
+postprocess the recordings:
 
-    castty post
+    (castty:post)
 
+You can also postprocess from the shell with the following command, in
+which case the current directory will be the working directory.
+
+    $ castty post
+
+Cleanup
+-------
+
+Remove all temporary and output files in the working directory:
+
+    (castty:clean)
+
+You can also clean from the shell with the following command, in
+which case the current directory will be the working directory.
+
+    $ castty clean
 
 FILES
 =====
@@ -36,18 +98,30 @@ FILES
 Configuration
 -------------
 
-* `$HOME/.config/casttyrc`: configuration file to set environment
-  variables
+* `$HOME/.config/castty/scene-alist.lisp`: configuration file to set
+  recording and output options.  See the `./lisp/scene-alist.lisp` in
+  the source tree for an example.
+
+Directories
+-----------
+
+Directories are relative to the working directory set in
+`castty:*workdir*`.
+
+* `./rec/`: Directory containing initial recordings
+* `./src/`: Directory containing (lossless) transcoded recordings
+* `./out/`: Directory containing output files
+* `./tmp/`: Directory for Temporary working files
+
+Temporary Files
+---------------
+
+* `/var/run/user/$UID/castty.pid`: PIDs of currently running recording
+  processes.  The `casttykill` script stops a recording by killing
+  each of these processes.
 
 Output Files
 ------------
 
 * `./out/hi-quality.mkv`: high-quality video file
 * `./out/compressed.mp4`: compressed video file
-
-Directories
------------
-* `./rec/`: Directory containing initial recordings
-* `./src/`: Directory containing (lossless) transcoded recordings
-* `./out/`: Directory containing output files
-* `./tmp/`: Directory for Temporary working files
