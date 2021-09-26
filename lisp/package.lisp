@@ -1,3 +1,3 @@
 (defpackage castty
   (:use :cl :alexandria :anthill)
-  (:export))
+  (:export :*workdir* :record :post :clean))
