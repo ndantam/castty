@@ -20,9 +20,20 @@
 
 (defvar *scenes* nil)
 
+(defun scene-parameter-env (parameter)
+  "Lookup parameter in environment"
+  (uiop/os:getenv (concatenate 'string
+                               "CASTTY_PARAM_"
+                               (string-upcase (substitute #\_ #\-
+                                                          (string parameter))))))
+
 (defun scene-parameter (scene parameter)
   (let ((scene (or scene :default)))
-    (labels ((lookup-scene (scene continuation)
+    (labels ((lookup-env (continuation)
+               (if-let ((env (scene-parameter-env parameter)))
+                 env
+                 (funcall continuation)))
+             (lookup-scene (scene continuation)
                (if-let ((el (assoc parameter  scene )))
                  (cdr el)
                  (funcall continuation)))
@@ -35,4 +46,4 @@
              (base ()
                (lookup-scene *base-scene*
                              (lambda  () (error "Could not lookup `~A'" parameter)))))
-      (lookup-sym scene #'default))))
+      (lookup-env (lambda () (lookup-sym scene #'default))))))

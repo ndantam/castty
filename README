@@ -92,6 +92,21 @@ which case the current directory will be the working directory.
 
     $ castty clean
 
+
+Transcoding
+-----------
+
+You can transcode files from the shell with:
+
+    $ CASTTY_INPUT=file.mp4 castty transcode
+
+If you want to modify options, you can override the default scene or
+specific parameters:
+
+    $ CASTTY_PARAM_AUDIO_FILTER="highpass=f=100,lowpass=f=10000" \
+      CASTTY_INPUT=file.mp4  castty transcode
+
+
 FILES
 =====
 
@@ -125,3 +140,10 @@ Output Files
 
 * `./out/hi-quality.mkv`: high-quality video file
 * `./out/compressed.mp4`: compressed video file
+
+ENVIRONMENT
+===========
+
+* `CASTTY_SCENE`: The scene to use when calling from the shell
+* `CASTTY_PARAM_FOO`: Override scene parameter FOO
+* `CASTTY_INPUT`: Input file
